@@ -1,7 +1,7 @@
 <?php
 // Replace with your actual database credentials
 $host = 'localhost';
-$dbName = 'dashboard';
+$dbName = 'stg-dashboard';
 $dbUname = 'rcipl_admin';
 $dbPass = '9033734886@Nik';
 
@@ -12,7 +12,6 @@ function authenticateUser() {
 
     $providedUsername = $_SERVER['PHP_AUTH_USER'] ?? '';
     $providedPassword = $_SERVER['PHP_AUTH_PW'] ?? '';
-    
     return ($providedUsername === $validUsername && $providedPassword === $validPassword);
 
     //return true;
@@ -29,10 +28,32 @@ function insertAssignableItem($assignableId, $item,$sacCode, $uom, $qty, $unit_p
         $stmt = $conn->prepare("INSERT INTO assignableItems (assignableId, itemDetails, sacCode, uom, qty, unitRate) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$assignableId, $item,$sacCode, $uom, $qty, $unit_price]);
         
-        return true; // Return true on successful insertion
+        $itemId = $conn->lastInsertId();
+        
+        // generate current datetime
+        $cdateTime = new DateTime();
+        $cdateTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
+        $currentDate = $cdateTime->format('Y-m-d H:i:s');
+        
+        $stmt2 = $conn->prepare("INSERT INTO item_claims 
+            (assignableId,itemId, itemDetails, sacCode, uom, qty, unitRate, Type,createdAt,invoiceCreated) 
+            VALUES (:assignableId,:itemId, :itemDetails, :sacCode, :uom, :qty, :unitRate, :type,:createdAt, :invoiceCreated)");
+        $stmt2->execute([
+            ':assignableId' => $assignableId,
+            ':itemId'       => $itemId,
+            ':itemDetails'  => $item,
+            ':sacCode'      => $sacCode,
+            ':uom'          => $uom,
+            ':qty'          => $qty,
+            ':unitRate'     => $unit_price,
+            ':type'         => 'Added',
+            ':createdAt'    => $currentDate,
+             ':invoiceCreated' => 0
+        ]);
+        
+        return true;
     } catch (PDOException $e) {
-        // Handle database connection errors or insertion errors
-        return false; // Return false if insertion fails
+        return false;
     }
 }
 
@@ -44,27 +65,73 @@ function fetchAssignableDetails($assignableId) {
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         // Fetch quotation details
-        $stmt = $conn->prepare("SELECT a.*, q.qutReference FROM assignables a JOIN quotation q ON a.qutId = q.qutId WHERE a.assignableId = ?");
+        $stmt = $conn->prepare("SELECT a.*, q.qutReference 
+                                FROM assignables a 
+                                JOIN quotation q ON a.qutId = q.qutId 
+                                WHERE a.assignableId = ?");
         $stmt->execute([$assignableId]);
         $assignable = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        // Fetch items associated with the quotation
+        // Fetch items
         $stmt = $conn->prepare("SELECT * FROM assignableItems WHERE assignableId = ?");
         $stmt->execute([$assignableId]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Fetch claims
+        $stmt = $conn->prepare("SELECT * FROM item_claims WHERE assignableId = ?");
+        $stmt->execute([$assignableId]);
+        $claims = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $itemWiseTotals = [];    
 
-        // Construct the quotation object
-        $assignableObject = array(
-            'assignable' => $assignable,
-            'items' => $items
-        );
+        foreach ($claims as $claim) {
+    $itemId = $claim['itemId'];
+    $qty = (int)$claim['qty'];
 
-        return $assignableObject; // Return quotation details along with items
-    } catch (PDOException $e) {
-        // Handle database connection errors or query errors
-        return null; // Return null if fetching fails
+    if (!isset($itemWiseTotals[$itemId])) {
+        $itemWiseTotals[$itemId] = ['totalQty' => 0, 'totalClaimedQty' => 0];
+    }
+
+    if (strtolower($claim['Type']) === 'added') {
+        $itemWiseTotals[$itemId]['totalQty'] += $qty;   
+    } elseif (strtolower($claim['Type']) === 'claimed') {
+        $itemWiseTotals[$itemId]['totalClaimedQty'] += $qty; 
     }
 }
+
+        // Attach to each claim
+        foreach ($claims as &$claim) {
+            $itemId = $claim['itemId'];
+            $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
+            $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+            $claim['totalQty'] = $total;
+            $claim['totalClaimedQty'] = $claimed;
+            $claim['availableQty'] = $total - $claimed;
+        }
+        
+        // Attach to each item
+        foreach ($items as &$item) {
+            $itemId = $item['itemId'];
+            $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
+            $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+            $item['totalQty'] = $total;
+            $item['totalClaimedQty'] = $claimed;
+            $item['availableQty'] = $total - $claimed;
+        }
+
+        return [
+            'assignable' => $assignable,
+            'items' => $items,
+            'item_claims'=> $claims
+        ];
+
+    } catch (PDOException $e) {
+        return null;
+    }
+}
+
+
+
 
 // Function to insert assignable data into the database
 function insertAssignable($assignableData) {
@@ -525,401 +592,6 @@ function fetchAllUserAssignments() {
   }
 }
 
-// function fetchAllUserAssignmentsNew() {
-//     global $host, $dbName, $dbUname, $dbPass;
-
-//     try {
-//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
-//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-//         // Read JSON input (for POST request)
-//         $jsonInput = file_get_contents("php://input");
-//         $requestData = json_decode($jsonInput, true);
-
-//         // Extract filters from requestData
-//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
-
-//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
-//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
-//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
-//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
-
-//         $offset = ($page - 1) * $pageSize;
-
-//         // Base query
-//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
-//                   FROM userAssignments ua 
-//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                   INNER JOIN clients c ON a.clientId = c.clientId 
-//                   INNER JOIN quotation q ON a.qutId = q.qutId 
-//                   WHERE ua.active = 1";
-
-//         // Add search filter
-//         if (!empty($search)) {
-//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search)";
-//         }
-
-//         // Add assignStatus filter (handle multiple statuses dynamically)
-//         $statusParams = [];
-//         if (!empty($assignStatuses)) {
-//             $statusPlaceholders = [];
-//             foreach ($assignStatuses as $index => $status) {
-//                 $paramName = ":assignStatus" . $index;
-//                 $statusPlaceholders[] = $paramName;
-//                 $statusParams[$paramName] = $status;
-//             }
-//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         // Add pagination
-//         $query .= " LIMIT :offset, :pageSize";
-
-//         $stmt = $conn->prepare($query);
-
-//         // Bind parameters
-//         if (!empty($search)) {
-//             $searchTerm = "%$search%";
-//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
-
-//         $stmt->execute();
-//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-//         // Process PO status
-//         foreach ($userAssignments as &$userAssignment) {
-//             if ($userAssignment['poRequired']) {
-//                 if ($userAssignment['poPending']) {
-//                     $userAssignment['poNumber'] = 'Pending';
-//                     $userAssignment['poDate'] = 'Pending';
-//                 }
-//             } else {
-//                 $userAssignment['poNumber'] = 'Not Required';
-//                 $userAssignment['poDate'] = 'Not Required';
-//             }
-//         }
-
-//         // Get total count for pagination
-//         $countQuery = "SELECT COUNT(*) AS total 
-//                       FROM userAssignments ua 
-//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                       INNER JOIN clients c ON a.clientId = c.clientId 
-//                       INNER JOIN quotation q ON a.qutId = q.qutId 
-//                       WHERE ua.active = 1";
-
-//         if (!empty($search)) {
-//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR ua.assignStatus LIKE :search)";
-//         }
-//         if (!empty($assignStatuses)) {
-//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         $countStmt = $conn->prepare($countQuery);
-
-//         if (!empty($search)) {
-//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-
-//         $countStmt->execute();
-//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-//         return [
-//             'data' => $userAssignments,
-//             'total' => $totalCount,
-//             'page' => $page,
-//             'pageSize' => $pageSize
-//         ];
-
-//     } catch (PDOException $e) {
-//         return json_encode(['error' => $e->getMessage()]);
-//     }
-// }
-
-
-// function fetchAllUserAssignmentsNew() {
-//     global $host, $dbName, $dbUname, $dbPass;
-
-//     try {
-//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
-//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-//         // Read JSON input (for POST request)
-//         $jsonInput = file_get_contents("php://input");
-//         $requestData = json_decode($jsonInput, true);
-
-//         // Extract filters from requestData
-//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
-//         $loggedUser = isset($filters['loggedUser']) ? $filters['loggedUser'] : '';
-//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
-//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
-//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
-//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
-
-//         $offset = ($page - 1) * $pageSize;
-
-//         // Base query
-//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
-//                   FROM userAssignments ua 
-//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                   INNER JOIN clients c ON a.clientId = c.clientId 
-//                   INNER JOIN quotation q ON a.qutId = q.qutId 
-//                   WHERE ua.active = 1";
-
-//         // Add filter for non-master users
-//         if ($loggedUser !== 'Master Admin') {
-//             $query .= " AND tc.teamName = :loggedUser";
-//         }
-
-//         // Add search filter
-//         if (!empty($search)) {
-//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search )";
-//         }
-
-//         // Add assignStatus filter (handle multiple statuses dynamically)
-//         $statusParams = [];
-//         if (!empty($assignStatuses)) {
-//             $statusPlaceholders = [];
-//             foreach ($assignStatuses as $index => $status) {
-//                 $paramName = ":assignStatus" . $index;
-//                 $statusPlaceholders[] = $paramName;
-//                 $statusParams[$paramName] = $status;
-//             }
-//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         // Add pagination
-//         $query .= " LIMIT :offset, :pageSize";
-
-//         $stmt = $conn->prepare($query);
-
-//         // Bind parameters
-//         if ($loggedUser !== 'Master Admin') {
-//             $stmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
-//         }
-//         if (!empty($search)) {
-//             $searchTerm = "%$search%";
-//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
-
-//         $stmt->execute();
-//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-//         // Process PO status
-//         foreach ($userAssignments as &$userAssignment) {
-//             if ($userAssignment['poRequired']) {
-//                 if ($userAssignment['poPending']) {
-//                     $userAssignment['poNumber'] = 'Pending';
-//                     $userAssignment['poDate'] = 'Pending';
-//                 }
-//             } else {
-//                 $userAssignment['poNumber'] = 'Not Required';
-//                 $userAssignment['poDate'] = 'Not Required';
-//             }
-//         }
-
-//         // Get total count for pagination
-//         $countQuery = "SELECT COUNT(*) AS total 
-//                       FROM userAssignments ua 
-//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                       INNER JOIN clients c ON a.clientId = c.clientId 
-//                       INNER JOIN quotation q ON a.qutId = q.qutId 
-//                       WHERE ua.active = 1";
-
-//         // Add filter for non-master users in count query
-//         if ($loggedUser !== 'Master Admin') {
-//             $countQuery .= " AND tc.teamName = :loggedUser";
-//         }
-
-//         if (!empty($search)) {
-//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search)";
-//         }
-//         if (!empty($assignStatuses)) {
-//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         $countStmt = $conn->prepare($countQuery);
-
-//         if ($loggedUser !== 'Master Admin') {
-//             $countStmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
-//         }
-//         if (!empty($search)) {
-//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-
-//         $countStmt->execute();
-//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-//         return ([
-//             'data' => $userAssignments,
-//             'total' => $totalCount,
-//             'page' => $page,
-//             'pageSize' => $pageSize
-//         ]);
-
-//     } catch (PDOException $e) {
-//         return json_encode(['error' => $e->getMessage()]);
-//     }
-// }
-
-// function fetchAllUserAssignmentsNew() {
-//     global $host, $dbName, $dbUname, $dbPass;
-
-//     try {
-//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
-//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-//         // Read JSON input (for POST request)
-//         $jsonInput = file_get_contents("php://input");
-//         $requestData = json_decode($jsonInput, true);
-
-//         // Extract filters from requestData
-//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
-//         $loggedUser = isset($filters['loggedUser']) ? $filters['loggedUser'] : '';
-//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
-//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
-//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
-//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
-
-//         $offset = ($page - 1) * $pageSize;
-
-//         // Base query
-//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
-//                   FROM userAssignments ua 
-//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                   INNER JOIN clients c ON a.clientId = c.clientId 
-//                   INNER JOIN quotation q ON a.qutId = q.qutId 
-//                   WHERE ua.active = 1";
-
-//         // Add filter for non-master users
-//         if ($loggedUser !== 'Master Admin') {
-//             $query .= " AND tc.teamName = :loggedUser";
-//         }
-
-//         // Add search filter
-//         if (!empty($search)) {
-//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search )";
-//         }
-        
-//         if (strtolower($search) === 'pending') {
-//             $query .= " OR (a.poRequired = 1 AND a.poPending = 1)";
-//         }
-        
-//         // Add assignStatus filter (handle multiple statuses dynamically)
-//         $statusParams = [];
-//         if (!empty($assignStatuses)) {
-//             $statusPlaceholders = [];
-//             foreach ($assignStatuses as $index => $status) {
-//                 $paramName = ":assignStatus" . $index;
-//                 $statusPlaceholders[] = $paramName;
-//                 $statusParams[$paramName] = $status;
-//             }
-//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         // Add pagination
-//         $query .= " LIMIT :offset, :pageSize";
-
-//         $stmt = $conn->prepare($query);
-
-//         // Bind parameters
-//         if ($loggedUser !== 'Master Admin') {
-//             $stmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
-//         }
-//         if (!empty($search)) {
-//             $searchTerm = "%$search%";
-//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
-
-//         $stmt->execute();
-//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-//         // Process PO status
-//         foreach ($userAssignments as &$userAssignment) {
-//             if ($userAssignment['poRequired']) {
-//                 if ($userAssignment['poPending']) {
-//                     $userAssignment['poNumber'] = 'Pending';
-//                     $userAssignment['poDate'] = 'Pending';
-//                 }
-//             } else {
-//                 $userAssignment['poNumber'] = 'Not Required';
-//                 $userAssignment['poDate'] = 'Not Required';
-//             }
-//         }
-
-//         // Get total count for pagination
-//         $countQuery = "SELECT COUNT(*) AS total 
-//                       FROM userAssignments ua 
-//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
-//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
-//                       INNER JOIN clients c ON a.clientId = c.clientId 
-//                       INNER JOIN quotation q ON a.qutId = q.qutId 
-//                       WHERE ua.active = 1";
-
-//         // Add filter for non-master users in count query
-//         if ($loggedUser !== 'Master Admin') {
-//             $countQuery .= " AND tc.teamName = :loggedUser";
-//         }
-
-//         // ✅ FIXED: Add missing teamName search in count query
-//         if (!empty($search)) {
-//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search)";
-//         }
-
-//         if (!empty($assignStatuses)) {
-//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
-//         }
-
-//         $countStmt = $conn->prepare($countQuery);
-
-//         if ($loggedUser !== 'Master Admin') {
-//             $countStmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
-//         }
-//         if (!empty($search)) {
-//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
-//         }
-//         foreach ($statusParams as $paramName => $value) {
-//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
-//         }
-
-//         $countStmt->execute();
-//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-//         return ([
-//             'data' => $userAssignments,
-//             'total' => $totalCount,
-//             'page' => $page,
-//             'pageSize' => $pageSize
-//         ]);
-
-//     } catch (PDOException $e) {
-//         return json_encode(['error' => $e->getMessage()]);
-//     }
-// }
 
 function fetchAllUserAssignmentsNew() {
     global $host, $dbName, $dbUname, $dbPass;
@@ -1561,6 +1233,121 @@ function updateRemarks($assignableId, $remarks) {
         // Handle database connection errors or update errors
         error_log("PDOException: " . $e->getMessage());
         return false; // Return false if update fails
+    }
+}
+
+// ---------------------------ITEM_CLAIMED----------------------------------
+function insertItemClaim() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $jsonInput = file_get_contents("php://input");
+        $claimData = json_decode($jsonInput, true);
+
+        // Map incoming JSON to table fields
+        $assignableId = isset($claimData['assignableId']) ? (int)$claimData['assignableId'] : 0;
+        $itemId = isset($claimData['itemId']) ? (int)$claimData['itemId'] : 0;
+        $itemDetails= isset($claimData['itemDetails']) ? $claimData['itemDetails'] : '';
+        $sacCode= isset($claimData['sacCode']) ? (int)$claimData['sacCode'] : 0;
+        $uom= isset($claimData['uom']) ? $claimData['uom'] : '';
+        $qty= isset($claimData['qty']) ? (int)$claimData['qty'] : 0;
+        $unitRate= isset($claimData['unitRate']) ? (int)$claimData['unitRate'] : 0;
+        $type = isset($claimData['type']) ? $claimData['type'] : '';
+
+        if ($assignableId <= 0 || $qty <= 0) {
+            http_response_code(400);
+            return ['error' => 'Invalid input data'];
+        }
+
+        // Get current datetime (IST)
+        $cdateTime = new DateTime();
+        $cdateTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
+        $currentDate = $cdateTime->format('Y-m-d H:i:s');
+        
+        // Insert into item_claims table
+        $insertClaimQuery = "INSERT INTO item_claims 
+            (assignableId,itemId, itemDetails, sacCode, uom, qty, unitRate, Type, createdAt, invoiceCreated) 
+            VALUES 
+            (:assignableId,:itemId, :itemDetails, :sacCode, :uom, :qty, :unitRate, :type, :createdAt, :invoiceCreated)";
+        
+        $stmt = $conn->prepare($insertClaimQuery);
+        $stmt->bindValue(':assignableId', $assignableId, PDO::PARAM_INT);
+        $stmt->bindValue(':itemId', $itemId, PDO::PARAM_INT);
+        $stmt->bindValue(':itemDetails', $itemDetails, PDO::PARAM_STR);
+        $stmt->bindValue(':sacCode', $sacCode, PDO::PARAM_INT);
+        $stmt->bindValue(':uom', $uom, PDO::PARAM_STR);
+        $stmt->bindValue(':qty', $qty, PDO::PARAM_INT);
+        $stmt->bindValue(':unitRate', $unitRate, PDO::PARAM_INT);
+        $stmt->bindValue(':type', $type, PDO::PARAM_STR);
+        $stmt->bindValue(':createdAt', $currentDate, PDO::PARAM_STR);
+        $stmt->bindValue(':invoiceCreated', 0, PDO::PARAM_INT); 
+
+        $stmt->execute();
+
+        return ['message' => 'Item claim submitted successfully'];
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        return ['error' => 'Database error: ' . $e->getMessage()];
+    }
+}
+
+function deleteItemClaim() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+
+    if ($id <= 0) {
+        http_response_code(400);
+        return ['error' => 'ID is required'];
+    }
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("DELETE FROM item_claims WHERE id = :id");
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return ['message' => 'Item claim deleted successfully'];
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        return ['error' => 'Database error: ' . $e->getMessage()];
+    }
+}
+
+function markInvoiceCompleted() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+
+    if ($id <= 0) {
+        http_response_code(400);
+        return ['error' => 'ID is required'];
+    }
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Force status to true (1)
+        $update = $conn->prepare("UPDATE item_claims SET invoiceCreated = 1 WHERE id = :id");
+        $update->bindValue(':id', $id, PDO::PARAM_INT);
+        $update->execute();
+
+        return [
+            'message' => 'Invoice marked as completed',
+            'invoiceCreated' => true
+        ];
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        return ['error' => 'Database error: ' . $e->getMessage()];
     }
 }
 
