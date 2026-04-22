@@ -627,8 +627,50 @@ elseif ($endpoint === 'fetchAllInquiriesForExcel') {
         // Return unauthorized response if authentication fails
         http_response_code(401);
         echo json_encode(array("message" => "Unauthorized"));
+    }}
+elseif ($endpoint === 'getRemarks') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $quotationId = $_GET['quotationId'] ?? '';
+        if ($quotationId !== '') {
+            $remarks = getRemarks($quotationId);
+            header('Content-Type: application/json');
+            echo json_encode($remarks);
+        } else {
+            http_response_code(400);
+            echo json_encode(array("message" => "Quotation ID is required"));
+        }
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
     }
-}else {
+}
+elseif ($endpoint === 'updateRemarks') {
+    $authenticated = authenticateUser();
+
+    if ($authenticated) {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        // Extract remarks data from the request
+        $quotationId = $data['quotationId'] ?? null;
+        $remarks = $data['remarks'] ?? null;
+
+        // Update remarks data in the database
+        $updated = updateRemarks($quotationId, $remarks);
+
+        if ($updated) {
+            header('Content-Type: application/json');
+            echo json_encode(array("message" => "Remarks updated successfully"));
+        } else {
+            http_response_code(500);
+            echo json_encode(array("message" => "Failed to update Remarks"));
+        }
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
+    }
+}
+else {
     http_response_code(404);
     echo json_encode(array("message" => "Endpoint not found"));
 }

@@ -743,6 +743,41 @@ function deleteInquiry($inquiryId) {
     }
 }
 
+function getRemarks($quotationId) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("SELECT remarks FROM quotation  WHERE qutId  = :quotationId");
+        $stmt->bindParam(':quotationId', $quotationId, PDO::PARAM_INT);
+        $stmt->execute();
+        $remarks = $stmt->fetchColumn();
+        
+        return $remarks; 
+    } catch (PDOException $e) {
+        return null; 
+    }
+}
+
+function updateRemarks($quotationId, $remarks) {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Correct column name is qutId (not quotationId)
+        $stmt = $conn->prepare("UPDATE quotation SET remarks = ? WHERE qutId = ?");
+        $stmt->execute([$remarks, $quotationId]);
+
+        return true;
+    } catch (PDOException $e) {
+        error_log("PDOException: " . $e->getMessage());
+        return false;
+    }
+}
+
 
 
 ?>

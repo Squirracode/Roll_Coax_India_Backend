@@ -131,7 +131,7 @@ function updateUser($Id, $username, $password, $email, $role, $name) {
 
 
 // Add client and contacts
-function addClientAndContacts($clientName, $address, $city, $state, $gst, $pan, $contacts) {
+function addClientAndContacts($clientName, $address, $city, $state, $gst, $pan, $contacts,$areas) {
     global $host, $dbName, $dbUname, $dbPass;
 
     try {
@@ -171,10 +171,19 @@ function addClientAndContacts($clientName, $address, $city, $state, $gst, $pan, 
             $email = $contact['email'];
             $stmt_contact->execute();
         }
+        
+        // Areas
+        $stmt_area = $conn->prepare("INSERT INTO area (areaName, clientId) VALUES (:areaName, :clientId)");
+        foreach ($areas as $a) {
+            $stmt_area->execute([
+                ':areaName' => $a['areaName'],
+                ':clientId' => $clientId
+            ]);
+        }
 
         // Commit the transaction if all inserts are successful
         $conn->commit();
-        return "Client and contacts added successfully";
+        return "Client, contacts & Areas added successfully";
     } catch (PDOException $e) {
         // Rollback the transaction if there's an error
         $conn->rollback();
@@ -235,6 +244,74 @@ function fetchAllClientsAndContacts() {
     }
 }
 
+// function fetchAllClientsAndContactsNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Get parameters from request
+//         $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+//         $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+//         $search = isset($_GET['search']) ? $_GET['search'] : '';
+
+//         $offset = ($page - 1) * $pageSize;
+
+//         // Base query
+//         $query = "SELECT c.*, ct.contactPersonName, ct.contactId, ct.contactNumber, ct.email 
+//                   FROM clients c
+//                   LEFT JOIN contact ct ON c.clientId = ct.clientId 
+//                   WHERE 1=1";
+
+//         // Add search filter
+//         if (!empty($search)) {
+//             $query .= " AND (c.clientName LIKE :search OR c.address LIKE :search OR c.city LIKE :search OR c.state LIKE :search OR ct.contactPersonName LIKE :search)";
+//         }
+
+//         // Add pagination
+//         $query .= " LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         // Bind parameters
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $clientsAndContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Get total count for pagination
+//         $countQuery = "SELECT COUNT(DISTINCT c.clientId) AS total FROM clients c LEFT JOIN contact ct ON c.clientId = ct.clientId WHERE 1=1";
+
+//         if (!empty($search)) {
+//             $countQuery .= " AND (c.clientName LIKE :search OR c.address LIKE :search OR c.city LIKE :search OR c.state LIKE :search OR ct.contactPersonName LIKE :search)";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+//         if (!empty($search)) {
+//             $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return [
+//             'data' => $clientsAndContacts,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ];
+
+//     } catch (PDOException $e) {
+//         return json_encode(['error' => $e->getMessage()]);
+//     }
+// }
+
 function fetchAllClientsAndContactsNew() {
     global $host, $dbName, $dbUname, $dbPass;
 
@@ -276,9 +353,27 @@ function fetchAllClientsAndContactsNew() {
         $stmt->execute();
         $clientsAndContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // ---------- Fetch areas for each client ----------
+        $clientIds = array_unique(array_column($clientsAndContacts, 'clientId'));
+        if (!empty($clientIds)) {
+            $inQuery = implode(',', $clientIds);
+            $areaStmt = $conn->query("SELECT * FROM area WHERE clientId IN ($inQuery)");
+            $areas = $areaStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Group areas by clientId
+            $areasByClient = [];
+            foreach ($areas as $area) {
+                $areasByClient[$area['clientId']][] = $area;
+            }
+
+            // Add areas to each client record
+            foreach ($clientsAndContacts as &$client) {
+                $client['areas'] = $areasByClient[$client['clientId']] ?? [];
+            }
+        }
+
         // Get total count for pagination
         $countQuery = "SELECT COUNT(DISTINCT c.clientId) AS total FROM clients c LEFT JOIN contact ct ON c.clientId = ct.clientId WHERE 1=1";
-
         if (!empty($search)) {
             $countQuery .= " AND (c.clientName LIKE :search OR c.address LIKE :search OR c.city LIKE :search OR c.state LIKE :search OR ct.contactPersonName LIKE :search)";
         }
@@ -287,7 +382,6 @@ function fetchAllClientsAndContactsNew() {
         if (!empty($search)) {
             $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
         }
-
         $countStmt->execute();
         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
 
@@ -303,7 +397,182 @@ function fetchAllClientsAndContactsNew() {
     }
 }
 
+// function getAllClientsAndArea() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Base query to get clients with contacts
+//         $query = "SELECT c.*, ct.contactPersonName, ct.contactId, ct.contactNumber, ct.email
+//                   FROM clients c
+//                   LEFT JOIN contact ct ON c.clientId = ct.clientId";
+
+//         $stmt = $conn->prepare($query);
+//         $stmt->execute();
+//         $clientsAndContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Fetch areas for each client
+//         $clientIds = array_unique(array_column($clientsAndContacts, 'clientId'));
+//         if (!empty($clientIds)) {
+//             $inQuery = implode(',', $clientIds);
+//             $areaStmt = $conn->query("SELECT * FROM area WHERE clientId IN ($inQuery)");
+//             $areas = $areaStmt->fetchAll(PDO::FETCH_ASSOC);
+
+//             // Group areas by clientId
+//             $areasByClient = [];
+//             foreach ($areas as $area) {
+//                 $areasByClient[$area['clientId']][] = $area;
+//             }
+
+//             // Add areas to each client record
+//             foreach ($clientsAndContacts as &$client) {
+//                 $client['areas'] = $areasByClient[$client['clientId']] ?? [];
+//             }
+//         }
+
+//         return [
+//             'data' => $clientsAndContacts
+//         ];
+
+//     } catch (PDOException $e) {
+//         return json_encode(['error' => $e->getMessage()]);
+//     }
+// }
+
+function getAllClientsAndArea() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
+
+        // 1) Fetch clients (only required columns)
+        $clientsStmt = $conn->prepare("SELECT clientId, clientName, address -- add other needed columns here
+                                       FROM clients");
+        $clientsStmt->execute();
+        $clients = $clientsStmt->fetchAll();
+
+        if (empty($clients)) {
+            return ['data' => []];
+        }
+
+        // build index by clientId and collect ids
+        $clientIds = [];
+        $clientsById = [];
+        foreach ($clients as $c) {
+            $cid = (int)$c['clientId'];
+            $clientIds[] = $cid;
+            $clientsById[$cid] = $c;
+            $clientsById[$cid]['contacts'] = [];
+            $clientsById[$cid]['areas'] = [];
+        }
+
+        // prepare placeholders for IN clause
+        $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+
+        // 2) Fetch contacts once for all clients
+        $contactsSql = "SELECT contactId, clientId, contactPersonName, contactNumber, email
+                        FROM contact
+                        WHERE clientId IN ($placeholders)";
+        $contactsStmt = $conn->prepare($contactsSql);
+        $contactsStmt->execute($clientIds);
+        $contacts = $contactsStmt->fetchAll();
+        foreach ($contacts as $ct) {
+            $cid = (int)$ct['clientId'];
+            if (isset($clientsById[$cid])) {
+                $clientsById[$cid]['contacts'][] = $ct;
+            }
+        }
+
+        // 3) Fetch areas once for all clients
+        $areasSql = "SELECT areaId, clientId, areaName -- add other area columns as needed
+                     FROM area
+                     WHERE clientId IN ($placeholders)";
+        $areasStmt = $conn->prepare($areasSql);
+        $areasStmt->execute($clientIds);
+        $areas = $areasStmt->fetchAll();
+        foreach ($areas as $a) {
+            $cid = (int)$a['clientId'];
+            if (isset($clientsById[$cid])) {
+                $clientsById[$cid]['areas'][] = $a;
+            }
+        }
+
+        // final numeric-indexed array
+        $final = array_values($clientsById);
+
+        return ['data' => $final];
+
+    } catch (PDOException $e) {
+        // return consistent error shape
+        return ['error' => $e->getMessage()];
+    }
+}
+
 // Function to fetch a client and their associated contacts by client ID
+// function getClientAndContactsById($clientId) {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         // Connect to the database
+//         $pdo = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Prepare and execute the SELECT query with JOIN
+//         $stmt = $pdo->prepare("
+//             SELECT c.*, ct.contactPersonName, ct.contactId, ct.contactNumber, ct.email
+//             FROM clients c
+//             LEFT JOIN contact ct ON c.clientId = ct.clientId
+//             WHERE c.clientId = :clientId
+//         ");
+        
+//         $stmt->bindParam(':clientId', $clientId);
+//         $stmt->execute();
+        
+//         // Initialize variables to store client and contacts
+//         $client = null;
+//         $contacts = array();
+
+//         // Fetch client and contact records
+//         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+//             // If client details are not yet fetched, populate client object
+//             if ($client === null) {
+//                 $client = array(
+//                     'clientId' => $row['clientId'],
+//                     'clientName' => $row['clientName'],
+//                     'address' => $row['address'],
+//                     'city' => $row['city'],
+//                     'state' => $row['state'],
+//                     'gst' => $row['gst'],
+//                     'pan' => $row['pan'],
+//                     'contacts' => array()
+//                 );
+//             }
+//             // If contact details exist, add them to the contacts array
+//             if ($row['contactPersonName'] !== null) {
+//                 $contacts[] = array(
+//                     'contactPersonName' => $row['contactPersonName'],
+//                     'contactNumber' => $row['contactNumber'],
+//                     'email' => $row['email']
+//                 );
+//             }
+//         }
+
+//         // Combine client and contacts into a single object
+//         $client['contacts'] = $contacts;
+
+//         return $client; // Return client with associated contacts
+//     } catch (PDOException $e) {
+//         // Handle database connection or query errors
+//         return null;
+//     }
+// }
+
+// add areas
 function getClientAndContactsById($clientId) {
     global $host, $dbName, $dbUname, $dbPass;
 
@@ -312,13 +581,14 @@ function getClientAndContactsById($clientId) {
         $pdo = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // Prepare and execute the SELECT query with JOIN
+        // Prepare and execute the SELECT query with JOIN for contacts
         $stmt = $pdo->prepare("
             SELECT c.*, ct.contactPersonName, ct.contactId, ct.contactNumber, ct.email
             FROM clients c
             LEFT JOIN contact ct ON c.clientId = ct.clientId
             WHERE c.clientId = :clientId
         ");
+        
         $stmt->bindParam(':clientId', $clientId);
         $stmt->execute();
         
@@ -328,7 +598,6 @@ function getClientAndContactsById($clientId) {
 
         // Fetch client and contact records
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            // If client details are not yet fetched, populate client object
             if ($client === null) {
                 $client = array(
                     'clientId' => $row['clientId'],
@@ -338,10 +607,12 @@ function getClientAndContactsById($clientId) {
                     'state' => $row['state'],
                     'gst' => $row['gst'],
                     'pan' => $row['pan'],
-                    'contacts' => array()
+                    'contacts' => array(),
+                    'areas' => array() // Add areas array here
                 );
             }
-            // If contact details exist, add them to the contacts array
+
+            // Add contact if exists
             if ($row['contactPersonName'] !== null) {
                 $contacts[] = array(
                     'contactPersonName' => $row['contactPersonName'],
@@ -351,15 +622,28 @@ function getClientAndContactsById($clientId) {
             }
         }
 
-        // Combine client and contacts into a single object
+        // Assign contacts
         $client['contacts'] = $contacts;
 
-        return $client; // Return client with associated contacts
+        // Fetch areas separately (keep current response format)
+        $stmtAreas = $pdo->prepare("
+            SELECT areaId, areaName
+            FROM area
+            WHERE clientId = :clientId
+        ");
+        $stmtAreas->bindParam(':clientId', $clientId);
+        $stmtAreas->execute();
+        $areas = $stmtAreas->fetchAll(PDO::FETCH_ASSOC);
+
+        $client['areas'] = $areas; // Add areas to client object
+
+        return $client;
+
     } catch (PDOException $e) {
-        // Handle database connection or query errors
         return null;
     }
 }
+
 
 // Function to delete a client and their associated contacts by ID
 function deleteClientAndContacts($clientId) {
@@ -394,7 +678,7 @@ function deleteClientAndContacts($clientId) {
     }
 }
 // Function to update a client and its associated contacts
-function updateClientAndContacts($clientId, $clientName, $address, $city, $state, $gst, $pan, $contacts) {
+function updateClientAndContacts($clientId, $clientName, $address, $city, $state, $gst, $pan, $contacts, $areas) {
     global $host, $dbName, $dbUname, $dbPass;
 
     try {
@@ -507,10 +791,25 @@ function updateClientAndContacts($clientId, $clientName, $address, $city, $state
             $stmt_delete_contacts->bindParam(':clientId', $clientId);
             $stmt_delete_contacts->execute();
         }
+        
+        // ---------- Area Update Logic ----------
+        // Delete all existing areas for this client
+        $stmt_delete_areas = $conn->prepare("DELETE FROM area WHERE clientId = :clientId");
+        $stmt_delete_areas->bindParam(':clientId', $clientId);
+        $stmt_delete_areas->execute();
+
+        // Insert new/updated areas
+        $stmt_area = $conn->prepare("INSERT INTO area (areaName, clientId) VALUES (:areaName, :clientId)");
+        foreach ($areas as $a) {
+            $stmt_area->execute([
+                ':areaName' => $a['areaName'],
+                ':clientId' => $clientId
+            ]);
+        }
 
         // Commit the transaction
         $conn->commit();
-        return "Client and contacts updated successfully";
+        return "Client, contacts & areas updated successfully";
     } catch (PDOException $e) {
         // Rollback the transaction if there's an error
         $conn->rollback();
@@ -948,6 +1247,29 @@ function markAllNotificationAsRead($teamName) {
     }
 }
 
+function markNotificationStatus($notificationId, $status) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        if ($status !== 'read' && $status !== 'unread') {
+            throw new Exception("Invalid status value");
+        }
+
+        $stmt = $pdo->prepare("UPDATE notifications SET status = :status WHERE notificationId = :notificationId");
+        $stmt->bindParam(':status', $status, PDO::PARAM_STR);
+        $stmt->bindParam(':notificationId', $notificationId, PDO::PARAM_INT);
+
+        return $stmt->execute();
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+
+
 // Function to get user details from the database
 function fetchMenuRoleMap() {
     global $host, $dbName, $dbUname, $dbPass;
@@ -974,6 +1296,973 @@ function fetchMenuRoleMap() {
     } catch (PDOException $e) {
         // Handle database connection errors
         return null;
+    }
+}
+
+function addSignature($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+            INSERT INTO signature (title, name, qualification, competentPersonUs, designation)
+            VALUES (:title, :name, :qualification, :competentPersonUs, :designation)
+        ");
+        $stmt->bindParam(':title', $data['title']);
+        $stmt->bindParam(':name', $data['name']);
+        $stmt->bindParam(':qualification', $data['qualification']);
+        $stmt->bindParam(':competentPersonUs', $data['competentPersonUs']); // ✅ correct column name
+        $stmt->bindParam(':designation', $data['designation']);
+        $stmt->execute();
+
+        return ['success' => true, 'message' => 'Signature added successfully', 'id' => $conn->lastInsertId()];
+
+    } catch (PDOException $e) {
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+function updateSignature($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+            UPDATE signature
+            SET title = :title,
+                name = :name,
+                qualification = :qualification,
+                competentPersonUs = :competentPersonUs,
+                designation = :designation
+            WHERE signatureId = :signatureId
+        ");
+        $stmt->bindParam(':title', $data['title']);
+        $stmt->bindParam(':name', $data['name']);
+        $stmt->bindParam(':qualification', $data['qualification']);
+        $stmt->bindParam(':competentPersonUs', $data['competentPersonUs']); // ✅ match DB
+        $stmt->bindParam(':designation', $data['designation']);
+        $stmt->bindParam(':signatureId', $data['signatureId'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        return ['success' => true, 'message' => 'Signature updated successfully'];
+
+    } catch (PDOException $e) {
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+
+function fetchAllSignaturesNew() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        $offset = ($page - 1) * $pageSize;
+
+        $query = "SELECT * FROM signature WHERE 1=1";
+        if (!empty($search)) {
+            $query .= " AND (title LIKE :search OR name LIKE :search OR qualification LIKE :search OR competentUs LIKE :search OR designation LIKE :search)";
+        }
+        $query .= " LIMIT :offset, :pageSize";
+
+        $stmt = $conn->prepare($query);
+        if (!empty($search)) {
+            $searchTerm = "%$search%";
+            $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+
+        $stmt->execute();
+        $signatures = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $countQuery = "SELECT COUNT(*) AS total FROM signature WHERE 1=1";
+        if (!empty($search)) {
+            $countQuery .= " AND (title LIKE :search OR name LIKE :search OR qualification LIKE :search OR competentUs LIKE :search OR designation LIKE :search)";
+        }
+        $countStmt = $conn->prepare($countQuery);
+        if (!empty($search)) {
+            $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        $countStmt->execute();
+        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+        return [
+            'data' => $signatures,
+            'total' => $totalCount,
+            'page' => $page,
+            'pageSize' => $pageSize
+        ];
+    } catch (PDOException $e) {
+        return json_encode(['error' => $e->getMessage()]);
+    }
+}
+function fetchAllSignatures() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Query to fetch all signatures
+        $query = "SELECT * FROM signature";
+        $stmt = $conn->prepare($query);
+        $stmt->execute();
+        $signatures = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'data' => $signatures
+        ];
+
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+
+function getSignatureById($signatureId) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("SELECT * FROM signature WHERE signatureId = :signatureId");
+        $stmt->bindParam(':signatureId', $signatureId, PDO::PARAM_INT);
+        $stmt->execute();
+        $signature = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $signature ?: null;
+
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+function deleteSignature($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("DELETE FROM signature WHERE signatureId = :signatureId");
+        $stmt->bindParam(':signatureId', $id, PDO::PARAM_INT); // <-- use $id
+        $stmt->execute();
+
+        return ['success' => true];
+
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+function fetchAllCalibrationsNew() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        $offset = ($page - 1) * $pageSize;
+
+        $query = "SELECT * FROM gauge_calibration WHERE 1=1";
+        if (!empty($search)) {
+            $query .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
+        }
+        $query .= " ORDER BY srNo DESC LIMIT :offset, :pageSize";
+
+        $stmt = $conn->prepare($query);
+        if (!empty($search)) {
+            $searchTerm = "%$search%";
+            $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+        $stmt->execute();
+        $calibrations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $countQuery = "SELECT COUNT(*) AS total FROM gauge_calibration WHERE 1=1";
+        if (!empty($search)) {
+            $countQuery .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
+        }
+
+        $countStmt = $conn->prepare($countQuery);
+        if (!empty($search)) {
+            $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        $countStmt->execute();
+        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+        return [
+            'data' => $calibrations,
+            'total' => $totalCount,
+            'page' => $page,
+            'pageSize' => $pageSize
+        ];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+function fetchAllCalibrations() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Query to fetch all calibrations
+        $query = "SELECT * FROM gauge_calibration ORDER BY srNo DESC";
+        $stmt = $conn->prepare($query);
+        $stmt->execute();
+        $calibrations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'data' => $calibrations
+        ];
+
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+
+// =================== FETCH BY SR NO ===================
+function fetchCalibrationById($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("SELECT * FROM gauge_calibration WHERE id = :id");
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+// =================== ADD NEW CALIBRATION ===================
+function addCalibration($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+            INSERT INTO gauge_calibration (srNo,calibrationDate, make, calibrationDueDate, rangeValue, calibrationDoneBy)
+            VALUES (:srNo, :calibrationDate, :make, :calibrationDueDate, :rangeValue, :calibrationDoneBy)
+        ");
+
+        $stmt->bindParam(':srNo', $data['srNo']);
+        $stmt->bindParam(':calibrationDate', $data['calibrationDate']);
+        $stmt->bindParam(':make', $data['make']);
+        $stmt->bindParam(':calibrationDueDate', $data['calibrationDueDate']);
+        $stmt->bindParam(':rangeValue', $data['rangeValue']);
+        $stmt->bindParam(':calibrationDoneBy', $data['calibrationDoneBy']);
+        $stmt->execute();
+
+        return ['status' => 'success'];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+// =================== UPDATE CALIBRATION ===================
+function updateCalibration($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+            UPDATE gauge_calibration 
+            SET srNo = :srNo,
+                calibrationDate = :calibrationDate,
+                make = :make,
+                calibrationDueDate = :calibrationDueDate,
+                rangeValue = :rangeValue,
+                calibrationDoneBy = :calibrationDoneBy
+            WHERE id = :id
+        ");
+
+        $stmt->bindParam(':id', $data['id'], PDO::PARAM_INT);
+        $stmt->bindParam(':srNo', $data['srNo']);  // string
+        $stmt->bindParam(':calibrationDate', $data['calibrationDate']);
+        $stmt->bindParam(':make', $data['make']);
+        $stmt->bindParam(':calibrationDueDate', $data['calibrationDueDate']);
+        $stmt->bindParam(':rangeValue', $data['rangeValue']);
+        $stmt->bindParam(':calibrationDoneBy', $data['calibrationDoneBy']);
+        $stmt->execute();
+
+        return ['status' => 'success'];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+
+// =================== DELETE CALIBRATION ===================
+function deleteCalibration($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("DELETE FROM gauge_calibration WHERE id = :id");
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return ['status' => 'deleted'];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+function addMake($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $stmt = $conn->prepare("INSERT INTO make (name) VALUES (:name)");
+        $stmt->bindParam(':name', $data['name']);
+        $stmt->execute();
+        return ['status' => 'success'];
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function updateMake($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $stmt = $conn->prepare("UPDATE make SET name=:name WHERE id=:id");
+        $stmt->bindParam(':name', $data['name']);
+        $stmt->bindParam(':id', $data['id']);
+        $stmt->execute();
+        return ['status' => 'success'];
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function deleteMake($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $stmt = $conn->prepare("DELETE FROM make WHERE id=:id");
+        $stmt->bindParam(':id', $id);
+        $stmt->execute();
+        return ['status' => 'success'];
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function fetchMakes() {
+    global $host, $dbName, $dbUname, $dbPass;
+    $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+    $stmt = $conn->query("SELECT * FROM make ORDER BY name");
+    return ['data' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
+}
+
+// function fetchMakes() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Query to get all makes
+//         $query = "SELECT * FROM make";
+//         $stmt = $conn->prepare($query);
+//         $stmt->execute();
+//         $makes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         return [
+//             'data' => $makes
+//         ];
+
+//     } catch (PDOException $e) {
+//         return ['error' => $e->getMessage()];
+//     }
+// }
+
+function addReport($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+    INSERT INTO pressureGaugeReport (
+        clientId, address, reportDate, area, type, tagNo, backPressure, make, size,
+        temperature, testingMedium, tagNoCorrect, tagPlateCheck, gaugeId,
+        setPressure1, setPressure2, setPressure3,
+        resetPressure1, resetPressure2, resetPressure3,
+        setPressureObservation, resetPressureObservation,
+        observedLeakage, signatureId, reportNo, permissibleLeakage,shortClientCode,
+        desiredSetPressure, desiredResetPressure
+    ) VALUES (
+        :clientId, :address, :reportDate, :area, :type, :tagNo, :backPressure, :make, :size,
+        :temperature, :testingMedium, :tagNoCorrect, :tagPlateCheck, :gaugeId,
+        :setPressure1, :setPressure2, :setPressure3,
+        :resetPressure1, :resetPressure2, :resetPressure3,
+        :setPressureObservation, :resetPressureObservation,
+        :observedLeakage, :signatureId, :reportNo, :permissibleLeakage,:shortClientCode,
+        :desiredSetPressure, :desiredResetPressure
+    )
+");
+
+        // Bind parameters from the $data object
+        $stmt->bindParam(':clientId', $data['clientId']);
+        $stmt->bindParam(':address', $data['address']);
+        $stmt->bindParam(':reportDate', $data['reportDate']);
+        $stmt->bindParam(':area', $data['area']);
+        $stmt->bindParam(':type', $data['type']);
+        $stmt->bindParam(':tagNo', $data['tagNo']);
+        $stmt->bindParam(':backPressure', $data['backPressure']);
+        $stmt->bindParam(':make', $data['make']);
+        $stmt->bindParam(':size', $data['size']);
+        // $stmt->bindParam(':temperature', $data['temperature']);
+        $stmt->bindValue(':temperature', strval($data['temperature']), PDO::PARAM_STR);
+        $stmt->bindParam(':testingMedium', $data['testingMedium']);
+        $stmt->bindParam(':tagNoCorrect', $data['tagNoCorrect']);
+        $stmt->bindParam(':tagPlateCheck', $data['tagPlateCheck']);
+        $stmt->bindParam(':gaugeId', $data['gaugeId']);
+        $stmt->bindParam(':setPressure1', $data['setPressure1']);
+        $stmt->bindParam(':setPressure2', $data['setPressure2']);
+        $stmt->bindParam(':setPressure3', $data['setPressure3']);
+        $stmt->bindParam(':resetPressure1', $data['resetPressure1']);
+        $stmt->bindParam(':resetPressure2', $data['resetPressure2']);
+        $stmt->bindParam(':resetPressure3', $data['resetPressure3']);
+        $stmt->bindParam(':observedLeakage', $data['observedLeakage']);
+        $stmt->bindParam(':signatureId', $data['signatureId']);
+        $stmt->bindParam(':reportNo', $data['reportNo']);
+        $stmt->bindParam(':permissibleLeakage', $data['permissibleLeakage']);
+        $stmt->bindParam(':setPressureObservation', $data['setPressureObservation']);
+        $stmt->bindParam(':resetPressureObservation', $data['resetPressureObservation']);
+        $stmt->bindParam(':shortClientCode', $data['shortClientCode']);
+        $stmt->bindParam(':desiredSetPressure', $data['desiredSetPressure']);
+        $stmt->bindParam(':desiredResetPressure', $data['desiredResetPressure']);
+        
+        $stmt->execute();
+
+        return ['status' => 'success', 'id' => $conn->lastInsertId()];
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function getNextReportNumber() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Match frontend's format: "NOV-2025"
+        $currentMonth = strtoupper(date('M')); // e.g. "NOV"
+        $currentYear = date('Y');
+
+        $stmt = $conn->prepare("
+            SELECT MAX(CAST(SUBSTRING_INDEX(reportNo, '/', -1) AS UNSIGNED)) AS max_no
+            FROM pressureGaugeReport
+            WHERE reportNo LIKE :month_year
+        ");
+        $stmt->execute([':month_year' => "%{$currentMonth}-{$currentYear}/%"]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $maxNo = $result['max_no'] ?? 0;
+        $nextNo = str_pad($maxNo + 1, 3, '0', STR_PAD_LEFT);
+
+        return $nextNo;
+    } catch (PDOException $e) {
+        return '001'; // fallback if DB fails
+    }
+}
+
+function updateReport($data) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("
+            UPDATE pressureGaugeReport SET
+                clientId = :clientId,
+                address = :address,
+                reportDate = :reportDate,
+                area = :area,
+                type = :type,
+                tagNo = :tagNo,
+                backPressure = :backPressure,
+                make = :make,
+                size = :size,
+                temperature = :temperature,
+                testingMedium = :testingMedium,
+                tagNoCorrect = :tagNoCorrect,
+                tagPlateCheck = :tagPlateCheck,
+                gaugeId = :gaugeId,
+                setPressure1 = :setPressure1,
+                setPressure2 = :setPressure2,
+                setPressure3 = :setPressure3,
+                resetPressure1 = :resetPressure1,
+                resetPressure2 = :resetPressure2,
+                resetPressure3 = :resetPressure3,
+                setPressureObservation = :setPressureObservation,
+                resetPressureObservation = :resetPressureObservation,
+                observedLeakage = :observedLeakage,
+                signatureId = :signatureId,
+                reportNo = :reportNo,
+                permissibleLeakage = :permissibleLeakage,
+                shortClientCode = :shortClientCode,
+                desiredSetPressure = :desiredSetPressure,
+                desiredResetPressure = :desiredResetPressure
+            WHERE id = :id
+        ");
+
+        // Bind parameters
+        $stmt->bindParam(':id', $data['id']);
+        $stmt->bindParam(':clientId', $data['clientId']);
+        $stmt->bindParam(':address', $data['address']);
+        $stmt->bindParam(':reportDate', $data['reportDate']);
+        $stmt->bindParam(':area', $data['area']);
+        $stmt->bindParam(':type', $data['type']);
+        $stmt->bindParam(':tagNo', $data['tagNo']);
+        $stmt->bindParam(':backPressure', $data['backPressure']);
+        $stmt->bindParam(':make', $data['make']);
+        $stmt->bindParam(':size', $data['size']);
+        // $stmt->bindParam(':temperature', $data['temperature']);
+        $stmt->bindValue(':temperature', strval($data['temperature']), PDO::PARAM_STR);
+        $stmt->bindParam(':testingMedium', $data['testingMedium']);
+        $stmt->bindParam(':tagNoCorrect', $data['tagNoCorrect']);
+        $stmt->bindParam(':tagPlateCheck', $data['tagPlateCheck']);
+        $stmt->bindParam(':gaugeId', $data['gaugeId']);
+        $stmt->bindParam(':setPressure1', $data['setPressure1']);
+        $stmt->bindParam(':setPressure2', $data['setPressure2']);
+        $stmt->bindParam(':setPressure3', $data['setPressure3']);
+        $stmt->bindParam(':resetPressure1', $data['resetPressure1']);
+        $stmt->bindParam(':resetPressure2', $data['resetPressure2']);
+        $stmt->bindParam(':resetPressure3', $data['resetPressure3']);
+        $stmt->bindParam(':setPressureObservation', $data['setPressureObservation']);
+        $stmt->bindParam(':resetPressureObservation', $data['resetPressureObservation']);
+        $stmt->bindParam(':observedLeakage', $data['observedLeakage']);
+        $stmt->bindParam(':signatureId', $data['signatureId']);
+        $stmt->bindParam(':reportNo', $data['reportNo']);
+        $stmt->bindParam(':permissibleLeakage', $data['permissibleLeakage']);
+        $stmt->bindParam(':shortClientCode', $data['shortClientCode']);
+        $stmt->bindParam(':desiredSetPressure', $data['desiredSetPressure']);
+        $stmt->bindParam(':desiredResetPressure', $data['desiredResetPressure']);
+
+        $stmt->execute();
+        return ['status' => 'success'];
+
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+// function fetchAllPressureGaugeReports() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+//         $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+//         $search = isset($_GET['search']) ? $_GET['search'] : '';
+//         $offset = ($page - 1) * $pageSize;
+
+//         // ✅ Main Query
+//         $query = "
+//             SELECT 
+//                 r.id AS reportId,
+//                 r.*,
+//                 c.clientName,
+//                 a.areaName,
+//                 g.srNo AS gauge_srNo,
+//                 g.make AS gauge_make,
+//                 g.rangeValue AS gauge_rangeValue,
+//                 g.calibrationDate AS gauge_calibrationDate,
+//                 g.calibrationDueDate AS gauge_calibrationDueDate,
+//                 g.calibrationDoneBy AS gauge_calibrationDoneBy,
+//                 s.name AS signature_name,
+//                 s.qualification AS signature_qualifications,
+//                 s.competentPersonUs AS signature_competentPersonUs,
+//                 s.designation AS signature_designation,
+//                 m.name AS valveMake,
+//                 DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
+//             FROM pressureGaugeReport r
+//             LEFT JOIN clients c ON r.clientId = c.clientId
+//              LEFT JOIN area a ON r.area = a.areaId
+//             LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+//             LEFT JOIN signature s ON r.signatureId = s.signatureId
+//             LEFT JOIN make m ON r.make = m.id
+//             WHERE 1=1
+//         ";
+
+//         if (!empty($search)) {
+//             $query .= "
+//                 AND (
+//                     c.clientName LIKE :search OR 
+//                     a.areaName LIKE :search OR 
+//                     g.make LIKE :search OR 
+//                     g.rangeValue LIKE :search OR 
+//                     g.calibrationDoneBy LIKE :search OR
+//                     s.name LIKE :search OR
+//                     m.name LIKE :search
+//                 )
+//             ";
+//         }
+
+//         $query .= " ORDER BY r.id DESC LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // ✅ Count Query
+//         $countQuery = "
+//             SELECT COUNT(*) AS total
+//             FROM pressureGaugeReport r
+//             LEFT JOIN clients c ON r.clientId = c.clientId
+//             LEFT JOIN area a ON r.area = a.areaId
+//             LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+//             LEFT JOIN signature s ON r.signatureId = s.signatureId
+//             LEFT JOIN make m ON r.make = m.id
+//             WHERE 1=1
+//         ";
+
+//         if (!empty($search)) {
+//             $countQuery .= "
+//                 AND (
+//                     c.clientName LIKE :search OR 
+//                     a.areaName LIKE :search OR 
+//                     g.make LIKE :search OR 
+//                     g.rangeValue LIKE :search OR 
+//                     g.calibrationDoneBy LIKE :search OR
+//                     s.name LIKE :search OR
+//                     m.name LIKE :search
+//                 )
+//             ";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+//         if (!empty($search)) {
+//             $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return [
+//             'data' => $reports,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ];
+
+//     } catch (PDOException $e) {
+//         return ['error' => $e->getMessage()];
+//     }
+// }
+
+function fetchAllPressureGaugeReports() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        $offset = ($page - 1) * $pageSize;
+
+        // ✅ Main Query
+        $query = "
+            SELECT 
+                r.id AS reportId,
+                r.*,
+                c.clientName,
+                g.srNo AS gauge_srNo,
+                g.make AS gauge_make,
+                g.rangeValue AS gauge_rangeValue,
+                g.calibrationDate AS gauge_calibrationDate,
+                g.calibrationDueDate AS gauge_calibrationDueDate,
+                g.calibrationDoneBy AS gauge_calibrationDoneBy,
+                s.name AS signature_name,
+                s.qualification AS signature_qualifications,
+                s.competentPersonUs AS signature_competentPersonUs,
+                s.designation AS signature_designation,
+                m.name AS valveMake,
+                DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
+            FROM pressureGaugeReport r
+            LEFT JOIN clients c ON r.clientId = c.clientId
+            LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+            LEFT JOIN signature s ON r.signatureId = s.signatureId
+            LEFT JOIN make m ON r.make = m.id
+            WHERE 1=1
+        ";
+
+        if (!empty($search)) {
+            $query .= "
+                AND (
+                    c.clientName LIKE :search OR 
+                    r.area LIKE :search OR
+                    r.tagNo LIKE :search OR
+                    r.reportNo LIKE :search OR
+                    r.gaugeId LIKE :search OR
+                    r.type LIKE :search OR
+                    g.make LIKE :search OR 
+                    g.rangeValue LIKE :search OR 
+                    g.calibrationDoneBy LIKE :search OR
+                    s.name LIKE :search OR
+                    m.name LIKE :search
+                )
+            ";
+        }
+
+        $query .= " ORDER BY r.id DESC LIMIT :offset, :pageSize";
+
+        $stmt = $conn->prepare($query);
+
+        if (!empty($search)) {
+            $searchTerm = "%$search%";
+            $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+
+        $stmt->execute();
+        $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // ✅ Count Query
+        $countQuery = "
+            SELECT COUNT(*) AS total
+            FROM pressureGaugeReport r
+            LEFT JOIN clients c ON r.clientId = c.clientId
+            LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+            LEFT JOIN signature s ON r.signatureId = s.signatureId
+            LEFT JOIN make m ON r.make = m.id
+            WHERE 1=1
+        ";
+
+        if (!empty($search)) {
+            $countQuery .= "
+                AND (
+                    c.clientName LIKE :search OR 
+                    r.area LIKE :search OR
+                    r.tagNo LIKE :search OR
+                    r.reportNo LIKE :search OR
+                    r.gaugeId LIKE :search OR
+                    r.type LIKE :search OR
+                    g.make LIKE :search OR 
+                    g.rangeValue LIKE :search OR 
+                    g.calibrationDoneBy LIKE :search OR
+                    s.name LIKE :search OR
+                    m.name LIKE :search
+                )
+            ";
+        }
+
+        $countStmt = $conn->prepare($countQuery);
+        if (!empty($search)) {
+            $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+
+        $countStmt->execute();
+        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+        return [
+            'data' => $reports,
+            'total' => $totalCount,
+            'page' => $page,
+            'pageSize' => $pageSize
+        ];
+
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+function exportPressureGaugeReports() {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        $startDate = isset($_GET['startDate']) ? $_GET['startDate'] : '';
+        $endDate = isset($_GET['endDate']) ? $_GET['endDate'] : '';
+
+        $query = "
+            SELECT 
+                r.id AS reportId,
+                r.*,
+                c.clientName,
+                g.make AS gauge_make,
+                g.rangeValue AS gauge_rangeValue,
+                g.calibrationDate AS gauge_calibrationDate,
+                g.calibrationDoneBy AS gauge_calibrationDoneBy,
+                s.name AS signature_name,
+                m.name AS valveMake,
+                DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
+            FROM pressureGaugeReport r
+            LEFT JOIN clients c ON r.clientId = c.clientId
+            LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+            LEFT JOIN signature s ON r.signatureId = s.signatureId
+             LEFT JOIN make m ON r.make = m.id
+            WHERE 1=1
+        ";
+
+        if (!empty($search)) {
+            $query .= "
+                AND (
+                    c.clientName LIKE :search OR 
+                    r.area LIKE :search OR
+                    r.tagNo LIKE :search OR
+                    r.reportNo LIKE :search OR
+                    r.type LIKE :search OR
+                    g.make LIKE :search OR 
+                    g.rangeValue LIKE :search OR 
+                    g.calibrationDoneBy LIKE :search OR
+                    s.name LIKE :search OR
+                    m.name LIKE :search
+                )
+            ";
+        }
+        
+        // ✅ DATE FILTER (MAIN FIX)
+        if (!empty($startDate) && !empty($endDate)) {
+            $query .= " AND DATE(r.reportDate) BETWEEN :startDate AND :endDate ";
+        }
+
+        $query .= " ORDER BY r.id DESC";
+
+        $stmt = $conn->prepare($query);
+
+        if (!empty($search)) {
+            $searchTerm = "%$search%";
+            $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+        }
+        
+        // ✅ Bind dates
+        if (!empty($startDate) && !empty($endDate)) {
+            $stmt->bindParam(':startDate', $startDate);
+            $stmt->bindParam(':endDate', $endDate);
+        }
+
+        $stmt->execute();
+        $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'status' => 'success',
+            'data' => $reports
+        ];
+
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function getReportById($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $query = "
+            SELECT 
+                r.id AS reportId,
+                r.*,
+                c.clientName,
+                a.areaName,
+                g.srNo AS gauge_srNo,
+                g.make AS gauge_make,
+                g.rangeValue AS gauge_rangeValue,
+                g.calibrationDate AS gauge_calibrationDate,
+                g.calibrationDueDate AS gauge_calibrationDueDate,
+                g.calibrationDoneBy AS gauge_calibrationDoneBy,
+                s.name AS signature_name,
+                s.qualification AS signature_qualifications,
+                s.competentPersonUs AS signature_competentPersonUs,
+                s.designation AS signature_designation,
+                m.name AS valveMake,
+                DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
+            FROM pressureGaugeReport r
+            LEFT JOIN clients c ON r.clientId = c.clientId
+            LEFT JOIN area a ON r.area = a.areaId
+            LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+            LEFT JOIN signature s ON r.signatureId = s.signatureId
+            LEFT JOIN make m ON r.make = m.id
+            WHERE r.id = :id
+            LIMIT 1
+        ";
+
+        $stmt = $conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $report = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($report) {
+            return ['status' => 'success', 'data' => $report];
+        } else {
+            return ['status' => 'error', 'message' => 'Report not found'];
+        }
+
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+function deletePressureGaugeReport($id) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("DELETE FROM pressureGaugeReport WHERE id = :id");
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return ['status' => 'deleted'];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
     }
 }
 

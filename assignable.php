@@ -757,7 +757,6 @@ elseif ($endpoint === 'getRemarks') {
     }
 }elseif ($endpoint === 'updateRemarks') {
     $authenticated = authenticateUser();
-
     if ($authenticated) {
         $data = json_decode(file_get_contents('php://input'), true);
 
@@ -779,7 +778,82 @@ elseif ($endpoint === 'getRemarks') {
         http_response_code(401);
         echo json_encode(array("message" => "Unauthorized"));
     }
-}  else {
+}elseif ($endpoint === 'getRemarksForAssignedTasks') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $assignableId = $_GET['assignableId'] ?? '';
+        if ($assignableId !== '') {
+            $remarks = getRemarksForAssignedTasks($assignableId);
+            header('Content-Type: application/json');
+            echo json_encode($remarks);
+        } else {
+            http_response_code(400);
+            echo json_encode(array("message" => "Assignable ID is required"));
+        }
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
+    }
+}elseif ($endpoint === 'updateRemarksForAssignedTasks') {
+    $authenticated = authenticateUser();
+
+    if ($authenticated) {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        // Extract payment data from the request
+        $assignableId = $data['assignableId'] ?? null;
+        $remarks = $data['remarks'] ?? null;
+
+        // Update payment data in the database
+        $updated = updateRemarksForAssignedTasks($assignableId, $remarks);
+
+        if ($updated) {
+            header('Content-Type: application/json');
+            echo json_encode(array("message" => "Remarks updated successfully"));
+        } else {
+            http_response_code(500);
+            echo json_encode(array("message" => "Failed to update Remarks"));
+        }
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
+    }
+}elseif ($endpoint === 'itemClaimed') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $result = insertItemClaim();
+        header('Content-Type: application/json');
+        echo json_encode($result);
+    } 
+    else {
+        http_response_code(401);
+        echo json_encode(['message' => 'Unauthorized']);
+    }
+}
+elseif ($endpoint === 'deleteitemClaimed') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $result = deleteItemClaim();
+        header('Content-Type: application/json');
+        echo json_encode($result);
+    } else {
+        http_response_code(401);
+        echo json_encode(['message' => 'Unauthorized']);
+    }
+}
+elseif ($endpoint === 'markInvoiceCompleted') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $result = markInvoiceCompleted();
+        header('Content-Type: application/json');
+        echo json_encode($result);
+    } else {
+        http_response_code(401);
+        echo json_encode(['message' => 'Unauthorized']);
+    }
+}
+  
+else {
     http_response_code(404);
     echo json_encode(array("message" => "Endpoint not found"));
 }

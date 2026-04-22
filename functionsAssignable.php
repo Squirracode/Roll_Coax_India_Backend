@@ -1,7 +1,7 @@
 <?php
 // Replace with your actual database credentials
 $host = 'localhost';
-$dbName = 'stg-dashboard';
+$dbName = 'dashboard';
 $dbUname = 'rcipl_admin';
 $dbPass = '9033734886@Nik';
 
@@ -12,6 +12,7 @@ function authenticateUser() {
 
     $providedUsername = $_SERVER['PHP_AUTH_USER'] ?? '';
     $providedPassword = $_SERVER['PHP_AUTH_PW'] ?? '';
+    
     return ($providedUsername === $validUsername && $providedPassword === $validPassword);
 
     //return true;
@@ -19,6 +20,23 @@ function authenticateUser() {
 
 
 // Function to insert an item into the quotationitem table
+// before item_claims
+// function insertAssignableItem($assignableId, $item,$sacCode, $uom, $qty, $unit_price) {
+//     global $host, $dbName, $dbUname, $dbPass;
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         $stmt = $conn->prepare("INSERT INTO assignableItems (assignableId, itemDetails, sacCode, uom, qty, unitRate) VALUES (?, ?, ?, ?, ?, ?)");
+//         $stmt->execute([$assignableId, $item,$sacCode, $uom, $qty, $unit_price]);
+        
+//         return true; // Return true on successful insertion
+//     } catch (PDOException $e) {
+//         // Handle database connection errors or insertion errors
+//         return false; // Return false if insertion fails
+//     }
+// }
+
 function insertAssignableItem($assignableId, $item,$sacCode, $uom, $qty, $unit_price) {
     global $host, $dbName, $dbUname, $dbPass;
     try {
@@ -57,6 +75,37 @@ function insertAssignableItem($assignableId, $item,$sacCode, $uom, $qty, $unit_p
     }
 }
 
+// before item_claims code
+// function fetchAssignableDetails($assignableId) {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Fetch quotation details
+//         $stmt = $conn->prepare("SELECT a.*, q.qutReference FROM assignables a JOIN quotation q ON a.qutId = q.qutId WHERE a.assignableId = ?");
+//         $stmt->execute([$assignableId]);
+//         $assignable = $stmt->fetch(PDO::FETCH_ASSOC);
+
+//         // Fetch items associated with the quotation
+//         $stmt = $conn->prepare("SELECT * FROM assignableItems WHERE assignableId = ?");
+//         $stmt->execute([$assignableId]);
+//         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Construct the quotation object
+//         $assignableObject = array(
+//             'assignable' => $assignable,
+//             'items' => $items
+//         );
+
+//         return $assignableObject; // Return quotation details along with items
+//     } catch (PDOException $e) {
+//         // Handle database connection errors or query errors
+//         return null; // Return null if fetching fails
+//     }
+// }
+
 function fetchAssignableDetails($assignableId) {
     global $host, $dbName, $dbUname, $dbPass;
 
@@ -86,7 +135,7 @@ function fetchAssignableDetails($assignableId) {
 
         foreach ($claims as $claim) {
     $itemId = $claim['itemId'];
-    $qty = (int)$claim['qty'];
+    $qty = (float)$claim['qty'];
 
     if (!isset($itemWiseTotals[$itemId])) {
         $itemWiseTotals[$itemId] = ['totalQty' => 0, 'totalClaimedQty' => 0];
@@ -106,7 +155,8 @@ function fetchAssignableDetails($assignableId) {
             $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
             $claim['totalQty'] = $total;
             $claim['totalClaimedQty'] = $claimed;
-            $claim['availableQty'] = $total - $claimed;
+            // $claim['availableQty'] = $total - $claimed;
+            $claim['availableQty'] = round($total - $claimed, 2);
         }
         
         // Attach to each item
@@ -116,7 +166,8 @@ function fetchAssignableDetails($assignableId) {
             $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
             $item['totalQty'] = $total;
             $item['totalClaimedQty'] = $claimed;
-            $item['availableQty'] = $total - $claimed;
+            // $item['availableQty'] = $total - $claimed;
+            $item['availableQty'] = round($total - $claimed, 2);
         }
 
         return [
@@ -129,8 +180,6 @@ function fetchAssignableDetails($assignableId) {
         return null;
     }
 }
-
-
 
 
 // Function to insert assignable data into the database
@@ -197,6 +246,146 @@ function fetchAllAssignables() {
     }
 }
 
+// function fetchAllAssignablesNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Get request parameters from POST
+//         $data = json_decode(file_get_contents("php://input"), true) ?: [];
+
+//         // Extract filters from the nested structure
+//         $filters = isset($data['filters']) ? $data['filters'] : [];
+//         $searchTerm = isset($data['searchTerm']) ? trim($data['searchTerm']) : '';
+//         $statuses = isset($data['statuses']) ? (array)$data['statuses'] : [];
+//         $page = isset($data['page']) ? (int)$data['page'] : 1;
+//         $pageSize = isset($data['pageSize']) ? (int)$data['pageSize'] : 10;
+//         $offset = ($page - 1) * $pageSize;
+
+
+//         // Base query
+//         $query = "SELECT a.*, q.qutReference, c.clientName, tc.teamName 
+//                   FROM assignables a 
+//                   JOIN quotation q ON a.qutId = q.qutId 
+//                   JOIN clients c ON a.clientId = c.clientId 
+//                   LEFT JOIN (
+//                       SELECT ua.assignableId, ua.teamId, ua.assignDate 
+//                       FROM userAssignments ua 
+//                       JOIN (
+//                           SELECT assignableId, MAX(assignDate) AS maxAssignDate 
+//                           FROM userAssignments 
+//                           GROUP BY assignableId
+//                       ) latest ON ua.assignableId = latest.assignableId AND ua.assignDate = latest.maxAssignDate
+//                   ) latestAssignments ON a.assignableId = latestAssignments.assignableId 
+//                   LEFT JOIN teamConfiguration tc ON latestAssignments.teamId = tc.teamId 
+//                   WHERE 1=1";
+
+//         // Add search filter
+//         if (!empty($searchTerm)) {
+//             $query .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search OR a.poNumber LIKE :search OR a.subject LIKE :search OR a.scopeOfWork LIKE :search OR a.created_by LIKE :search OR a.status LIKE :search  OR tc.teamName LIKE :search)";
+//         }
+        
+//         if (strtolower($searchTerm) === 'pending') {
+//     $query .= " OR (a.poRequired = 1 AND a.poPending = 1)";
+// }
+
+//         // Add status filter dynamically
+//         $statusPlaceholders = [];
+//         if (!empty($statuses)) {
+//             foreach ($statuses as $index => $status) {
+//                 $statusPlaceholders[] = ":status$index";
+//             }
+//             $query .= " AND a.status IN (" . implode(',', $statusPlaceholders) . ")";
+//         }
+
+//         // Add pagination
+//         $query .= " LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         // Bind parameters
+//         if (!empty($searchTerm)) {
+//             $searchParam = "%$searchTerm%";
+//             $stmt->bindValue(':search', $searchParam, PDO::PARAM_STR);
+//         }
+//         if (!empty($statuses)) {
+//             foreach ($statuses as $index => $status) {
+//                 $stmt->bindValue(":status$index", $status, PDO::PARAM_STR);
+//             }
+//         }
+//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $assignables = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Format response
+//         foreach ($assignables as &$assignable) {
+//             if ($assignable['poRequired']) {
+//                 if ($assignable['poPending']) {
+//                     $assignable['poNumber'] = 'Pending';
+//                     $assignable['poDate'] = 'Pending';
+//                 }
+//             } else {
+//                 $assignable['poNumber'] = 'Not Required';
+//                 $assignable['poDate'] = 'Not Required';
+//             }
+//             if (empty($assignable['teamName'])) {
+//                 $assignable['teamName'] = 'Not Assigned';
+//             }
+//         }
+
+//         // Get filtered count (with search and status filters)
+//         $filteredCountQuery = "SELECT COUNT(*) AS filteredTotal 
+//                               FROM assignables a 
+//                               JOIN quotation q ON a.qutId = q.qutId 
+//                               JOIN clients c ON a.clientId = c.clientId 
+//                               WHERE 1=1";
+//         if (!empty($searchTerm)) {
+//             $filteredCountQuery .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search)";
+//         }
+//         if (strtolower($searchTerm) === 'pending') {
+//     $filteredCountQuery .= " OR (a.poRequired = 1 AND a.poPending = 1)";
+// }
+//         if (!empty($statuses)) {
+//             $filteredCountQuery .= " AND a.status IN (" . implode(',', $statusPlaceholders) . ")";
+//         }
+//         $filteredCountStmt = $conn->prepare($filteredCountQuery);
+//         if (!empty($searchTerm)) {
+//             $filteredCountStmt->bindValue(':search', $searchParam, PDO::PARAM_STR);
+//         }
+//         if (!empty($statuses)) {
+//             foreach ($statuses as $index => $status) {
+//                 $filteredCountStmt->bindValue(":status$index", $status, PDO::PARAM_STR);
+//             }
+//         }
+//         $filteredCountStmt->execute();
+//         $filteredCount = $filteredCountStmt->fetch(PDO::FETCH_ASSOC)['filteredTotal'];
+
+//         // Return response with debug info
+//         $response = [
+//             'data' => $assignables,
+//             'total' => $filteredCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize,
+//             'debug' => $debug // Include debug info
+//         ];
+//         header('Content-Type: application/json');
+//         echo json_encode($response);
+//         exit;
+
+//     } catch (PDOException $e) {
+//         $response = [
+//             'error' => $e->getMessage(),
+//             'debug' => $debug
+//         ];
+//         header('Content-Type: application/json');
+//         echo json_encode($response);
+//         exit;
+//     }
+// }
 function fetchAllAssignablesNew() {
     global $host, $dbName, $dbUname, $dbPass;
 
@@ -210,37 +399,86 @@ function fetchAllAssignablesNew() {
         // Extract filters from the nested structure
         $filters = isset($data['filters']) ? $data['filters'] : [];
         $searchTerm = isset($data['searchTerm']) ? trim($data['searchTerm']) : '';
-        $statuses = isset($data['statuses']) ? (array)$data['statuses'] : [];
-        $page = isset($data['page']) ? (int)$data['page'] : 1;
-        $pageSize = isset($data['pageSize']) ? (int)$data['pageSize'] : 10;
-        $offset = ($page - 1) * $pageSize;
-
+        $statuses   = isset($data['statuses']) ? (array)$data['statuses'] : [];
+        $teams      = isset($data['Teams']) ? (array)$data['Teams'] : []; // ðŸ‘ˆ NEW
+        $page       = isset($data['page']) ? (int)$data['page'] : 1;
+        $pageSize   = isset($data['pageSize']) ? (int)$data['pageSize'] : 10;
+        $offset     = ($page - 1) * $pageSize;
 
         // Base query
-        $query = "SELECT a.*, q.qutReference, c.clientName, tc.teamName 
-                  FROM assignables a 
-                  JOIN quotation q ON a.qutId = q.qutId 
-                  JOIN clients c ON a.clientId = c.clientId 
-                  LEFT JOIN (
-                      SELECT ua.assignableId, ua.teamId, ua.assignDate 
-                      FROM userAssignments ua 
-                      JOIN (
-                          SELECT assignableId, MAX(assignDate) AS maxAssignDate 
-                          FROM userAssignments 
-                          GROUP BY assignableId
-                      ) latest ON ua.assignableId = latest.assignableId AND ua.assignDate = latest.maxAssignDate
-                  ) latestAssignments ON a.assignableId = latestAssignments.assignableId 
-                  LEFT JOIN teamConfiguration tc ON latestAssignments.teamId = tc.teamId 
-                  WHERE 1=1";
+        // $query = "SELECT a.*, q.qutReference, c.clientName, tc.teamName 
+        //           FROM assignables a 
+        //           JOIN quotation q ON a.qutId = q.qutId 
+        //           JOIN clients c ON a.clientId = c.clientId 
+        //           LEFT JOIN (
+        //               SELECT ua.assignableId, ua.teamId, ua.assignDate 
+        //               FROM userAssignments ua 
+        //               JOIN (
+        //                   SELECT assignableId, MAX(assignDate) AS maxAssignDate 
+        //                   FROM userAssignments 
+        //                   GROUP BY assignableId
+        //               ) latest ON ua.assignableId = latest.assignableId AND ua.assignDate = latest.maxAssignDate
+        //           ) latestAssignments ON a.assignableId = latestAssignments.assignableId 
+        //           LEFT JOIN teamConfiguration tc ON latestAssignments.teamId = tc.teamId 
+        //           WHERE 1=1";
+        $query = "SELECT 
+            a.*, q.qutReference, c.clientName, tc.teamName,
+            prevTC.teamName AS executedBy, prevTC.isExecutionTeam
+        FROM assignables a 
+
+        JOIN quotation q ON a.qutId = q.qutId 
+        JOIN clients c ON a.clientId = c.clientId 
+
+        -- ✅ Latest assignment (optimized)
+        LEFT JOIN (
+            SELECT ua1.*
+            FROM userAssignments ua1
+            INNER JOIN (
+                SELECT assignableId, MAX(assignDate) AS maxDate
+                FROM userAssignments
+                GROUP BY assignableId
+            ) ua2 
+            ON ua1.assignableId = ua2.assignableId 
+            AND ua1.assignDate = ua2.maxDate
+        ) latestUA ON latestUA.assignableId = a.assignableId
+
+        LEFT JOIN teamConfiguration tc 
+            ON latestUA.teamId = tc.teamId
+
+        -- ✅ Previous assignment (optimized)
+        LEFT JOIN (
+            SELECT ua1.*
+            FROM userAssignments ua1
+            INNER JOIN (
+                SELECT ua.assignableId, MAX(ua.assignDate) AS prevDate
+                FROM userAssignments ua
+                INNER JOIN (
+                    SELECT assignableId, MAX(assignDate) AS maxDate
+                    FROM userAssignments
+                    GROUP BY assignableId
+                ) latest 
+                ON ua.assignableId = latest.assignableId
+                WHERE ua.assignDate < latest.maxDate
+                GROUP BY ua.assignableId
+            ) prev 
+            ON ua1.assignableId = prev.assignableId 
+            AND ua1.assignDate = prev.prevDate
+        ) prevUA ON prevUA.assignableId = a.assignableId
+
+        LEFT JOIN teamConfiguration prevTC 
+            ON prevUA.teamId = prevTC.teamId
+
+        WHERE 1=1
+        AND prevTC.isExecutionTeam = 1";
 
         // Add search filter
         if (!empty($searchTerm)) {
-            $query .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search OR a.poNumber LIKE :search OR a.subject LIKE :search OR a.scopeOfWork LIKE :search OR a.created_by LIKE :search OR a.status LIKE :search)";
+            $query .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search OR a.poNumber LIKE :search OR a.subject LIKE :search OR a.scopeOfWork LIKE :search OR a.created_by LIKE :search OR a.status LIKE :search  OR tc.teamName LIKE :search)";
         }
-        
+
         if (strtolower($searchTerm) === 'pending') {
-    $query .= " OR (a.poRequired = 1 AND a.poPending = 1)";
-}
+            $query .= " OR (a.poRequired = 1 AND a.poPending = 1)";
+        }
 
         // Add status filter dynamically
         $statusPlaceholders = [];
@@ -249,6 +487,15 @@ function fetchAllAssignablesNew() {
                 $statusPlaceholders[] = ":status$index";
             }
             $query .= " AND a.status IN (" . implode(',', $statusPlaceholders) . ")";
+        }
+
+        // Add team filter dynamically
+        $teamPlaceholders = [];
+        if (!empty($teams)) {
+            foreach ($teams as $index => $team) {
+                $teamPlaceholders[] = ":team$index";
+            }
+            $query .= " AND tc.teamName IN (" . implode(',', $teamPlaceholders) . ")";
         }
 
         // Add pagination
@@ -266,6 +513,11 @@ function fetchAllAssignablesNew() {
                 $stmt->bindValue(":status$index", $status, PDO::PARAM_STR);
             }
         }
+        if (!empty($teams)) {
+            foreach ($teams as $index => $team) {
+                $stmt->bindValue(":team$index", $team, PDO::PARAM_STR);
+            }
+        }
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
 
@@ -277,33 +529,85 @@ function fetchAllAssignablesNew() {
             if ($assignable['poRequired']) {
                 if ($assignable['poPending']) {
                     $assignable['poNumber'] = 'Pending';
-                    $assignable['poDate'] = 'Pending';
+                    $assignable['poDate']   = 'Pending';
                 }
             } else {
                 $assignable['poNumber'] = 'Not Required';
-                $assignable['poDate'] = 'Not Required';
+                $assignable['poDate']   = 'Not Required';
             }
             if (empty($assignable['teamName'])) {
                 $assignable['teamName'] = 'Not Assigned';
             }
-        }
+           // ✅ DEFAULT VALUES
+            if (empty($assignable['executedBy'])) {
+                $assignable['executedBy'] = 'Not Assigned';
+            }
+}
 
-        // Get filtered count (with search and status filters)
+        // Get filtered count (with search, status and team filters)
+        // $filteredCountQuery = "SELECT COUNT(*) AS filteredTotal 
+        //                       FROM assignables a 
+        //                       JOIN quotation q ON a.qutId = q.qutId 
+        //                       JOIN clients c ON a.clientId = c.clientId 
+        //                       LEFT JOIN (
+        //                           SELECT ua.assignableId, ua.teamId, ua.assignDate 
+        //                           FROM userAssignments ua 
+        //                           JOIN (
+        //                               SELECT assignableId, MAX(assignDate) AS maxAssignDate 
+        //                               FROM userAssignments 
+        //                               GROUP BY assignableId
+        //                           ) latest ON ua.assignableId = latest.assignableId AND ua.assignDate = latest.maxAssignDate
+        //                       ) latestAssignments ON a.assignableId = latestAssignments.assignableId 
+        //                       LEFT JOIN teamConfiguration tc ON latestAssignments.teamId = tc.teamId 
+        //                       WHERE 1=1";
         $filteredCountQuery = "SELECT COUNT(*) AS filteredTotal 
-                               FROM assignables a 
-                               JOIN quotation q ON a.qutId = q.qutId 
-                               JOIN clients c ON a.clientId = c.clientId 
-                               WHERE 1=1";
+                FROM assignables a 
+                JOIN quotation q ON a.qutId = q.qutId 
+                JOIN clients c ON a.clientId = c.clientId 
+                
+                -- ✅ Latest Assignment
+                LEFT JOIN userAssignments latestUA 
+                    ON latestUA.assignableId = a.assignableId
+                    AND latestUA.assignDate = (
+                        SELECT MAX(assignDate) 
+                        FROM userAssignments 
+                        WHERE assignableId = a.assignableId
+                    )
+                
+                LEFT JOIN teamConfiguration tc 
+                    ON latestUA.teamId = tc.teamId 
+                
+                -- ✅ Previous Assignment
+                LEFT JOIN userAssignments prevUA 
+                    ON prevUA.assignableId = a.assignableId
+                    AND prevUA.assignDate = (
+                        SELECT MAX(assignDate) 
+                        FROM userAssignments 
+                        WHERE assignableId = a.assignableId
+                        AND assignDate < latestUA.assignDate
+                    )
+                
+                LEFT JOIN teamConfiguration prevTC 
+                    ON prevUA.teamId = prevTC.teamId
+                
+                WHERE 1=1
+                AND prevTC.isExecutionTeam = 1";
+
         if (!empty($searchTerm)) {
             $filteredCountQuery .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search)";
         }
         if (strtolower($searchTerm) === 'pending') {
-    $filteredCountQuery .= " OR (a.poRequired = 1 AND a.poPending = 1)";
-}
+            $filteredCountQuery .= " OR (a.poRequired = 1 AND a.poPending = 1)";
+        }
         if (!empty($statuses)) {
             $filteredCountQuery .= " AND a.status IN (" . implode(',', $statusPlaceholders) . ")";
         }
+        if (!empty($teams)) {
+            $filteredCountQuery .= " AND tc.teamName IN (" . implode(',', $teamPlaceholders) . ")";
+        }
+
         $filteredCountStmt = $conn->prepare($filteredCountQuery);
+
         if (!empty($searchTerm)) {
             $filteredCountStmt->bindValue(':search', $searchParam, PDO::PARAM_STR);
         }
@@ -312,16 +616,21 @@ function fetchAllAssignablesNew() {
                 $filteredCountStmt->bindValue(":status$index", $status, PDO::PARAM_STR);
             }
         }
+        if (!empty($teams)) {
+            foreach ($teams as $index => $team) {
+                $filteredCountStmt->bindValue(":team$index", $team, PDO::PARAM_STR);
+            }
+        }
+
         $filteredCountStmt->execute();
         $filteredCount = $filteredCountStmt->fetch(PDO::FETCH_ASSOC)['filteredTotal'];
 
-        // Return response with debug info
+        // Return response
         $response = [
             'data' => $assignables,
             'total' => $filteredCount,
             'page' => $page,
-            'pageSize' => $pageSize,
-            'debug' => $debug // Include debug info
+            'pageSize' => $pageSize
         ];
         header('Content-Type: application/json');
         echo json_encode($response);
@@ -329,15 +638,13 @@ function fetchAllAssignablesNew() {
 
     } catch (PDOException $e) {
         $response = [
-            'error' => $e->getMessage(),
-            'debug' => $debug
+            'error' => $e->getMessage()
         ];
         header('Content-Type: application/json');
         echo json_encode($response);
         exit;
     }
 }
-
 
 
 function insertComment($commentText, $commentBy, $commentDate, $assignableId) {
@@ -369,7 +676,7 @@ function fetchComments($assignableId) {
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         // Prepare and execute the SQL query to fetch comments
-        $stmt = $conn->prepare("SELECT * FROM assignableComments WHERE assignableId = ?");
+        $stmt = $conn->prepare("SELECT * FROM assignableComments WHERE assignableId = ? ORDER BY commentDate DESC");
         $stmt->execute([$assignableId]);
         
         // Return fetched comments
@@ -592,6 +899,401 @@ function fetchAllUserAssignments() {
   }
 }
 
+// function fetchAllUserAssignmentsNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Read JSON input (for POST request)
+//         $jsonInput = file_get_contents("php://input");
+//         $requestData = json_decode($jsonInput, true);
+
+//         // Extract filters from requestData
+//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
+
+//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
+//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
+//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
+//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
+
+//         $offset = ($page - 1) * $pageSize;
+
+//         // Base query
+//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
+//                   FROM userAssignments ua 
+//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                   INNER JOIN clients c ON a.clientId = c.clientId 
+//                   INNER JOIN quotation q ON a.qutId = q.qutId 
+//                   WHERE ua.active = 1";
+
+//         // Add search filter
+//         if (!empty($search)) {
+//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search)";
+//         }
+
+//         // Add assignStatus filter (handle multiple statuses dynamically)
+//         $statusParams = [];
+//         if (!empty($assignStatuses)) {
+//             $statusPlaceholders = [];
+//             foreach ($assignStatuses as $index => $status) {
+//                 $paramName = ":assignStatus" . $index;
+//                 $statusPlaceholders[] = $paramName;
+//                 $statusParams[$paramName] = $status;
+//             }
+//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         // Add pagination
+//         $query .= " LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         // Bind parameters
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Process PO status
+//         foreach ($userAssignments as &$userAssignment) {
+//             if ($userAssignment['poRequired']) {
+//                 if ($userAssignment['poPending']) {
+//                     $userAssignment['poNumber'] = 'Pending';
+//                     $userAssignment['poDate'] = 'Pending';
+//                 }
+//             } else {
+//                 $userAssignment['poNumber'] = 'Not Required';
+//                 $userAssignment['poDate'] = 'Not Required';
+//             }
+//         }
+
+//         // Get total count for pagination
+//         $countQuery = "SELECT COUNT(*) AS total 
+//                       FROM userAssignments ua 
+//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                       INNER JOIN clients c ON a.clientId = c.clientId 
+//                       INNER JOIN quotation q ON a.qutId = q.qutId 
+//                       WHERE ua.active = 1";
+
+//         if (!empty($search)) {
+//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR ua.assignStatus LIKE :search)";
+//         }
+//         if (!empty($assignStatuses)) {
+//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+
+//         if (!empty($search)) {
+//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return [
+//             'data' => $userAssignments,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ];
+
+//     } catch (PDOException $e) {
+//         return json_encode(['error' => $e->getMessage()]);
+//     }
+// }
+
+
+// function fetchAllUserAssignmentsNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Read JSON input (for POST request)
+//         $jsonInput = file_get_contents("php://input");
+//         $requestData = json_decode($jsonInput, true);
+
+//         // Extract filters from requestData
+//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
+//         $loggedUser = isset($filters['loggedUser']) ? $filters['loggedUser'] : '';
+//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
+//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
+//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
+//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
+
+//         $offset = ($page - 1) * $pageSize;
+
+//         // Base query
+//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
+//                   FROM userAssignments ua 
+//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                   INNER JOIN clients c ON a.clientId = c.clientId 
+//                   INNER JOIN quotation q ON a.qutId = q.qutId 
+//                   WHERE ua.active = 1";
+
+//         // Add filter for non-master users
+//         if ($loggedUser !== 'Master Admin') {
+//             $query .= " AND tc.teamName = :loggedUser";
+//         }
+
+//         // Add search filter
+//         if (!empty($search)) {
+//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search )";
+//         }
+
+//         // Add assignStatus filter (handle multiple statuses dynamically)
+//         $statusParams = [];
+//         if (!empty($assignStatuses)) {
+//             $statusPlaceholders = [];
+//             foreach ($assignStatuses as $index => $status) {
+//                 $paramName = ":assignStatus" . $index;
+//                 $statusPlaceholders[] = $paramName;
+//                 $statusParams[$paramName] = $status;
+//             }
+//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         // Add pagination
+//         $query .= " LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         // Bind parameters
+//         if ($loggedUser !== 'Master Admin') {
+//             $stmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
+//         }
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Process PO status
+//         foreach ($userAssignments as &$userAssignment) {
+//             if ($userAssignment['poRequired']) {
+//                 if ($userAssignment['poPending']) {
+//                     $userAssignment['poNumber'] = 'Pending';
+//                     $userAssignment['poDate'] = 'Pending';
+//                 }
+//             } else {
+//                 $userAssignment['poNumber'] = 'Not Required';
+//                 $userAssignment['poDate'] = 'Not Required';
+//             }
+//         }
+
+//         // Get total count for pagination
+//         $countQuery = "SELECT COUNT(*) AS total 
+//                       FROM userAssignments ua 
+//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                       INNER JOIN clients c ON a.clientId = c.clientId 
+//                       INNER JOIN quotation q ON a.qutId = q.qutId 
+//                       WHERE ua.active = 1";
+
+//         // Add filter for non-master users in count query
+//         if ($loggedUser !== 'Master Admin') {
+//             $countQuery .= " AND tc.teamName = :loggedUser";
+//         }
+
+//         if (!empty($search)) {
+//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search)";
+//         }
+//         if (!empty($assignStatuses)) {
+//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+
+//         if ($loggedUser !== 'Master Admin') {
+//             $countStmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
+//         }
+//         if (!empty($search)) {
+//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return ([
+//             'data' => $userAssignments,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ]);
+
+//     } catch (PDOException $e) {
+//         return json_encode(['error' => $e->getMessage()]);
+//     }
+// }
+
+// function fetchAllUserAssignmentsNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         // Read JSON input (for POST request)
+//         $jsonInput = file_get_contents("php://input");
+//         $requestData = json_decode($jsonInput, true);
+
+//         // Extract filters from requestData
+//         $filters = isset($requestData['filters']) ? $requestData['filters'] : [];
+//         $loggedUser = isset($filters['loggedUser']) ? $filters['loggedUser'] : '';
+//         $page = isset($filters['page']) ? (int)$filters['page'] : 1;
+//         $pageSize = isset($filters['pageSize']) ? (int)$filters['pageSize'] : 10;
+//         $search = isset($filters['searchTerm']) ? $filters['searchTerm'] : '';
+//         $assignStatuses = isset($filters['statuses']) ? $filters['statuses'] : [];
+
+//         $offset = ($page - 1) * $pageSize;
+
+//         // Base query
+//         $query = "SELECT q.qutReference, ua.*, tc.teamName, c.clientName, a.poDate, a.poNumber, a.poPending, a.subject, a.poRequired 
+//                   FROM userAssignments ua 
+//                   INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                   INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                   INNER JOIN clients c ON a.clientId = c.clientId 
+//                   INNER JOIN quotation q ON a.qutId = q.qutId 
+//                   WHERE ua.active = 1";
+
+//         // Add filter for non-master users
+//         if ($loggedUser !== 'Master Admin') {
+//             $query .= " AND tc.teamName = :loggedUser";
+//         }
+
+//         // Add search filter
+//         if (!empty($search)) {
+//             $query .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search )";
+//         }
+        
+//         if (strtolower($search) === 'pending') {
+//             $query .= " OR (a.poRequired = 1 AND a.poPending = 1)";
+//         }
+        
+//         // Add assignStatus filter (handle multiple statuses dynamically)
+//         $statusParams = [];
+//         if (!empty($assignStatuses)) {
+//             $statusPlaceholders = [];
+//             foreach ($assignStatuses as $index => $status) {
+//                 $paramName = ":assignStatus" . $index;
+//                 $statusPlaceholders[] = $paramName;
+//                 $statusParams[$paramName] = $status;
+//             }
+//             $query .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         // Add pagination
+//         $query .= " LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+
+//         // Bind parameters
+//         if ($loggedUser !== 'Master Admin') {
+//             $stmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
+//         }
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $stmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+//         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+
+//         $stmt->execute();
+//         $userAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         // Process PO status
+//         foreach ($userAssignments as &$userAssignment) {
+//             if ($userAssignment['poRequired']) {
+//                 if ($userAssignment['poPending']) {
+//                     $userAssignment['poNumber'] = 'Pending';
+//                     $userAssignment['poDate'] = 'Pending';
+//                 }
+//             } else {
+//                 $userAssignment['poNumber'] = 'Not Required';
+//                 $userAssignment['poDate'] = 'Not Required';
+//             }
+//         }
+
+//         // Get total count for pagination
+//         $countQuery = "SELECT COUNT(*) AS total 
+//                       FROM userAssignments ua 
+//                       INNER JOIN assignables a ON ua.assignableId = a.assignableId 
+//                       INNER JOIN teamConfiguration tc ON ua.teamId = tc.teamId 
+//                       INNER JOIN clients c ON a.clientId = c.clientId 
+//                       INNER JOIN quotation q ON a.qutId = q.qutId 
+//                       WHERE ua.active = 1";
+
+//         // Add filter for non-master users in count query
+//         if ($loggedUser !== 'Master Admin') {
+//             $countQuery .= " AND tc.teamName = :loggedUser";
+//         }
+
+//         // âœ… FIXED: Add missing teamName search in count query
+//         if (!empty($search)) {
+//             $countQuery .= " AND (c.clientName LIKE :search OR a.subject LIKE :search OR a.poNumber LIKE :search OR tc.teamName LIKE :search)";
+//         }
+
+//         if (!empty($assignStatuses)) {
+//             $countQuery .= " AND ua.assignStatus IN (" . implode(", ", $statusPlaceholders) . ")";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+
+//         if ($loggedUser !== 'Master Admin') {
+//             $countStmt->bindValue(':loggedUser', $loggedUser, PDO::PARAM_STR);
+//         }
+//         if (!empty($search)) {
+//             $countStmt->bindValue(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         foreach ($statusParams as $paramName => $value) {
+//             $countStmt->bindValue($paramName, $value, PDO::PARAM_STR);
+//         }
+
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return ([
+//             'data' => $userAssignments,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ]);
+
+//     } catch (PDOException $e) {
+//         return json_encode(['error' => $e->getMessage()]);
+//     }
+// }
 
 function fetchAllUserAssignmentsNew() {
     global $host, $dbName, $dbUname, $dbPass;
@@ -1199,9 +1901,25 @@ function fetchAllInvoicesWithPaymentsNew() {
     }
 }
 
-
-
 function getRemarks($assignableId) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("SELECT remarks FROM assignables WHERE assignableId = :assignableId");
+        $stmt->bindParam(':assignableId', $assignableId, PDO::PARAM_INT);
+        $stmt->execute();
+        $remarks = $stmt->fetchColumn();
+        
+        return $remarks; 
+    } catch (PDOException $e) {
+        return null; 
+    }
+}
+
+function getRemarksForAssignedTasks($assignableId) {
     global $host, $dbName, $dbUname, $dbPass;
 
     try {
@@ -1219,7 +1937,7 @@ function getRemarks($assignableId) {
     }
 }
 
-function updateRemarks($assignableId, $remarks) {
+function updateRemarksForAssignedTasks($assignableId, $remarks) {
     global $host, $dbName, $dbUname, $dbPass;
     try {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
@@ -1227,6 +1945,23 @@ function updateRemarks($assignableId, $remarks) {
 
         // Prepare the SQL query to update remarks details
         $stmt = $conn->prepare("UPDATE userAssignments SET remarks = ? WHERE assignableId = ?");
+        $stmt->execute([$remarks, $assignableId]);
+        return true;
+    } catch (PDOException $e) {
+        // Handle database connection errors or update errors
+        error_log("PDOException: " . $e->getMessage());
+        return false; // Return false if update fails
+    }
+}
+
+function updateRemarks($assignableId, $remarks) {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Prepare the SQL query to update remarks details
+        $stmt = $conn->prepare("UPDATE assignables SET remarks = ? WHERE assignableId = ?");
         $stmt->execute([$remarks, $assignableId]);
         return true;
     } catch (PDOException $e) {
@@ -1253,8 +1988,8 @@ function insertItemClaim() {
         $itemDetails= isset($claimData['itemDetails']) ? $claimData['itemDetails'] : '';
         $sacCode= isset($claimData['sacCode']) ? (int)$claimData['sacCode'] : 0;
         $uom= isset($claimData['uom']) ? $claimData['uom'] : '';
-        $qty= isset($claimData['qty']) ? (int)$claimData['qty'] : 0;
-        $unitRate= isset($claimData['unitRate']) ? (int)$claimData['unitRate'] : 0;
+        $qty= isset($claimData['qty']) ? (float)$claimData['qty'] : 0;
+        $unitRate= isset($claimData['unitRate']) ? (float)$claimData['unitRate'] : 0;
         $type = isset($claimData['type']) ? $claimData['type'] : '';
 
         if ($assignableId <= 0 || $qty <= 0) {
@@ -1279,8 +2014,10 @@ function insertItemClaim() {
         $stmt->bindValue(':itemDetails', $itemDetails, PDO::PARAM_STR);
         $stmt->bindValue(':sacCode', $sacCode, PDO::PARAM_INT);
         $stmt->bindValue(':uom', $uom, PDO::PARAM_STR);
-        $stmt->bindValue(':qty', $qty, PDO::PARAM_INT);
-        $stmt->bindValue(':unitRate', $unitRate, PDO::PARAM_INT);
+        // $stmt->bindValue(':qty', $qty, PDO::PARAM_INT);
+        // $stmt->bindValue(':unitRate', $unitRate, PDO::PARAM_INT);
+        $stmt->bindValue(':qty', $qty);
+        $stmt->bindValue(':unitRate', $unitRate);
         $stmt->bindValue(':type', $type, PDO::PARAM_STR);
         $stmt->bindValue(':createdAt', $currentDate, PDO::PARAM_STR);
         $stmt->bindValue(':invoiceCreated', 0, PDO::PARAM_INT); 
@@ -1350,5 +2087,4 @@ function markInvoiceCompleted() {
         return ['error' => 'Database error: ' . $e->getMessage()];
     }
 }
-
 ?>
