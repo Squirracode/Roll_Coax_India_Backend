@@ -2021,7 +2021,7 @@ function fetchAllPressureGaugeReports() {
                 g.calibrationDate AS gauge_calibrationDate,
                 g.calibrationDueDate AS gauge_calibrationDueDate,
                 g.calibrationDoneBy AS gauge_calibrationDoneBy,
-                s.name AS signature_name,
+                CONCAT(s.title, ' ', s.name) AS signature_name,
                 s.qualification AS signature_qualifications,
                 s.competentPersonUs AS signature_competentPersonUs,
                 s.designation AS signature_designation,
@@ -2136,7 +2136,7 @@ function exportPressureGaugeReports() {
                 g.rangeValue AS gauge_rangeValue,
                 g.calibrationDate AS gauge_calibrationDate,
                 g.calibrationDoneBy AS gauge_calibrationDoneBy,
-                s.name AS signature_name,
+                CONCAT(s.title, ' ', s.name) AS signature_name,
                 m.name AS valveMake,
                 DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
             FROM pressureGaugeReport r
@@ -2216,7 +2216,7 @@ function getReportById($id) {
                 g.calibrationDate AS gauge_calibrationDate,
                 g.calibrationDueDate AS gauge_calibrationDueDate,
                 g.calibrationDoneBy AS gauge_calibrationDoneBy,
-                s.name AS signature_name,
+                CONCAT(s.title, ' ', s.name) AS signature_name,
                 s.qualification AS signature_qualifications,
                 s.competentPersonUs AS signature_competentPersonUs,
                 s.designation AS signature_designation,

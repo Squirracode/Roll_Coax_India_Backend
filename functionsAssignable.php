@@ -465,11 +465,12 @@ function fetchAllAssignablesNew() {
             AND ua1.assignDate = prev.prevDate
         ) prevUA ON prevUA.assignableId = a.assignableId
 
-        LEFT JOIN teamConfiguration prevTC 
+       LEFT JOIN teamConfiguration prevTC 
             ON prevUA.teamId = prevTC.teamId
+            AND prevTC.isExecutionTeam = 1
 
-        WHERE 1=1
-        AND prevTC.isExecutionTeam = 1";
+        WHERE 1=1";
+
 
         // Add search filter
         if (!empty($searchTerm)) {
@@ -589,9 +590,9 @@ function fetchAllAssignablesNew() {
                 
                 LEFT JOIN teamConfiguration prevTC 
                     ON prevUA.teamId = prevTC.teamId
-                
+                AND prevTC.isExecutionTeam = 1
                 WHERE 1=1
-                AND prevTC.isExecutionTeam = 1";
+                ";
 
         if (!empty($searchTerm)) {
             $filteredCountQuery .= " AND (c.clientName LIKE :search OR q.qutReference LIKE :search)";
