@@ -1295,7 +1295,8 @@ function fetchMenuRoleMap() {
         return $roleMenuMap;
     } catch (PDOException $e) {
         // Handle database connection errors
-        return null;
+        // return null;
+        return $e->getMessage();
     }
 }
 
