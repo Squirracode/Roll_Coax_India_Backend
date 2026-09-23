@@ -23,7 +23,7 @@ if ($endpoint === 'insertInventory') {
 
     if ($authenticated) {
         $role = $_POST['role'] ?? ($_GET['role'] ?? '');
-        if ($role && !in_array($role, ['Admin', 'Master Admin'])) {
+        if ($role && !in_array($role, ['Admin', 'Master Admin', 'Store Manager', 'Store'])) {
             http_response_code(403);
             echo json_encode(array("message" => "Forbidden: Only Admin can add inventory"));
             exit();
@@ -160,7 +160,7 @@ if ($endpoint === 'insertInventory') {
         }
 
         $role = $data['role'] ?? ($_POST['role'] ?? '');
-        if ($role && !in_array($role, ['Admin', 'Master Admin'])) {
+        if ($role && !in_array($role, ['Admin', 'Master Admin', 'Store Manager', 'Store'])) {
             http_response_code(403);
             echo json_encode(array("message" => "Forbidden: Only Admin can update inventory"));
             exit();
@@ -190,7 +190,7 @@ if ($endpoint === 'insertInventory') {
     if ($authenticated) {
         $data = json_decode(file_get_contents('php://input'), true);
         $role = $data['role'] ?? ($_GET['role'] ?? '');
-        if ($role && !in_array($role, ['Admin', 'Master Admin'])) {
+        if ($role && !in_array($role, ['Admin', 'Master Admin', 'Store Manager', 'Store'])) {
             http_response_code(403);
             echo json_encode(array("message" => "Forbidden: Only Admin can delete inventory"));
             exit();
@@ -224,7 +224,7 @@ if ($endpoint === 'insertInventory') {
         $data = json_decode(file_get_contents('php://input'), true);
 
         $role = $data['role'] ?? '';
-        if ($role && !in_array($role, ['Execution', 'Admin', 'BD', 'Account', 'Master Admin'])) {
+        if ($role && !in_array($role, ['Execution', 'Admin', 'BD', 'Account', 'Master Admin', 'Store Manager', 'Store'])) {
             http_response_code(403);
             echo json_encode(array("message" => "Forbidden role"));
             exit();
@@ -310,7 +310,7 @@ if ($endpoint === 'insertInventory') {
         $data = json_decode(file_get_contents('php://input'), true);
 
         $role = $data['role'] ?? ($_GET['role'] ?? '');
-        if ($role && !in_array($role, ['Admin', 'Master Admin'])) {
+        if ($role && !in_array($role, ['Admin', 'Master Admin', 'Store Manager', 'Store'])) {
             http_response_code(403);
             echo json_encode(array("message" => "Forbidden: Only Admin can update inventory request status"));
             exit();
@@ -413,13 +413,15 @@ if ($endpoint === 'insertInventory') {
     if ($authenticated) {
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $type       = $data['type']       ?? 'Reusable';
-        $item_name  = $data['item_name']  ?? '';
-        $item_make  = $data['item_make']  ?? '';
-        $image_link = $data['image_link'] ?? '';
+        $type             = $data['type']             ?? 'Reusable';
+        $item_name        = $data['item_name']        ?? '';
+        $item_make        = $data['item_make']        ?? '';
+        $image_link       = $data['image_link']       ?? '';
+        $assign_operators = $data['assign_operators'] ?? 'No';
+        $operators        = $data['operators']        ?? '';
 
         if ($item_name) {
-            $result = addInventoryItem($type, $item_name, $item_make, $image_link);
+            $result = addInventoryItem($type, $item_name, $item_make, $image_link, $assign_operators, $operators);
             if ($result === true) {
                 header('Content-Type: application/json');
                 echo json_encode(array("message" => "Item added successfully"));
@@ -447,14 +449,16 @@ if ($endpoint === 'insertInventory') {
     if ($authenticated) {
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $id         = $data['id']         ?? 0;
-        $type       = $data['type']       ?? 'Reusable';
-        $item_name  = $data['item_name']  ?? '';
-        $item_make  = $data['item_make']  ?? '';
-        $image_link = $data['image_link'] ?? '';
+        $id               = $data['id']               ?? 0;
+        $type             = $data['type']             ?? 'Reusable';
+        $item_name        = $data['item_name']        ?? '';
+        $item_make        = $data['item_make']        ?? '';
+        $image_link       = $data['image_link']       ?? '';
+        $assign_operators = $data['assign_operators'] ?? 'No';
+        $operators        = $data['operators']        ?? '';
 
         if ($id && $item_name) {
-            $result = updateMasterCatalogItem($id, $type, $item_name, $item_make, $image_link);
+            $result = updateMasterCatalogItem($id, $type, $item_name, $item_make, $image_link, $assign_operators, $operators);
             if ($result === true) {
                 header('Content-Type: application/json');
                 echo json_encode(array("message" => "Item updated successfully"));
