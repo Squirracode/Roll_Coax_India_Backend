@@ -2088,6 +2088,7 @@ function fetchAllPressureGaugeReports() {
                     r.reportNo LIKE :search OR
                     r.gaugeId LIKE :search OR
                     r.type LIKE :search OR
+                    g.srNo LIKE :search OR
                     g.make LIKE :search OR 
                     g.rangeValue LIKE :search OR 
                     g.calibrationDoneBy LIKE :search OR
@@ -2264,6 +2265,74 @@ function deletePressureGaugeReport($id) {
         return ['status' => 'deleted'];
     } catch (PDOException $e) {
         return ['error' => $e->getMessage()];
+    }
+}
+
+function getBulkReportsData($clientIds) {
+    global $host, $dbName, $dbUname, $dbPass;
+
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        if (empty($clientIds)) {
+            return ['status' => 'success', 'data' => []];
+        }
+
+        // Validate and sanitize clientIds
+        $clientIdArray = explode(',', $clientIds);
+        $cleanClientIds = [];
+        foreach ($clientIdArray as $id) {
+            $val = (int)trim($id);
+            if ($val > 0) {
+                $cleanClientIds[] = $val;
+            }
+        }
+        
+        if (empty($cleanClientIds)) {
+            return ['status' => 'success', 'data' => []];
+        }
+
+        $placeholders = implode(',', $cleanClientIds);
+
+        $query = "
+            SELECT 
+                r.id AS reportId,
+                r.*,
+                c.clientName,
+                c.address,
+                g.srNo AS gauge_srNo,
+                g.make AS gauge_make,
+                g.rangeValue AS gauge_rangeValue,
+                g.calibrationDate AS gauge_calibrationDate,
+                g.calibrationDueDate AS gauge_calibrationDueDate,
+                g.calibrationDoneBy AS gauge_calibrationDoneBy,
+                CONCAT(s.title, ' ', s.name) AS signature_name,
+                s.qualification AS signature_qualifications,
+                s.competentPersonUs AS signature_competentPersonUs,
+                s.designation AS signature_designation,
+                m.name AS valveMake,
+                DATE_SUB(DATE_ADD(r.reportDate, INTERVAL 1 YEAR), INTERVAL 1 DAY) AS reportDueDate
+            FROM pressureGaugeReport r
+            LEFT JOIN clients c ON r.clientId = c.clientId
+            LEFT JOIN gauge_calibration g ON r.gaugeId = g.id
+            LEFT JOIN signature s ON r.signatureId = s.signatureId
+            LEFT JOIN make m ON r.make = m.id
+            WHERE r.clientId IN ($placeholders)
+            ORDER BY r.id DESC
+        ";
+
+        $stmt = $conn->prepare($query);
+        $stmt->execute();
+        $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'status' => 'success',
+            'data' => $reports
+        ];
+
+    } catch (PDOException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
     }
 }
 

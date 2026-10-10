@@ -25,6 +25,7 @@ function insertQuotationItem($quotationId, $item,$sacCode, $uom, $qty, $unit_pri
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+        $unit_price = isset($unit_price) && $unit_price !== '' ? (float)$unit_price : 0;
         $stmt = $conn->prepare("INSERT INTO quotationItems (qutId, itemDetails, sacCode, uom, qty, unitRate) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$quotationId, $item,$sacCode, $uom, $qty, $unit_price]);
         
@@ -46,8 +47,8 @@ function updateQuotation($qutId,$quotationData, $itemsData) {
         $dateTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
         $last_modified = $dateTime->format('Y-m-d H:i:s'); 
         // Prepare and execute the SQL query to update quotation data
-        $stmt = $conn->prepare("UPDATE quotation SET qutReference = ?, date = ?, status = ?, subject = ?, clientId = ?, contactName = ?, termAndCondition = ?, scopeOfWork = ?, version = ?, created_by = ?, last_modified = ? WHERE qutId = ?");
-        $stmt->execute([$quotationData['qutReference'], $quotationDate, $quotationData['status'], $quotationData['subject'], $quotationData['clientId'], $quotationData['contactName'], $quotationData['termAndCondition'], $quotationData['scopeOfWork'], $quotationData['version'], $quotationData['createdBy'], $last_modified, $qutId]);
+        $stmt = $conn->prepare("UPDATE quotation SET qutReference = ?, date = ?, status = ?, subject = ?, clientId = ?, contactName = ?, termAndCondition = ?, scopeOfWork = ?, version = ?, created_by = ?,client_scope_of_work = ?,proposed_by = ?, last_modified = ? WHERE qutId = ?");
+        $stmt->execute([$quotationData['qutReference'], $quotationDate, $quotationData['status'], $quotationData['subject'], $quotationData['clientId'], $quotationData['contactName'], $quotationData['termAndCondition'], $quotationData['scopeOfWork'],$quotationData['client_scope_of_work'],$quotationData['proposed_by'], $quotationData['version'], $quotationData['createdBy'], $last_modified, $qutId]);
 
         // Delete existing items related to the quotation
         $stmt = $conn->prepare("DELETE FROM quotationItems WHERE qutId = ?");
@@ -55,8 +56,9 @@ function updateQuotation($qutId,$quotationData, $itemsData) {
 
         // Insert updated items related to the quotation
         foreach ($itemsData as $item) {
+            $unitRate = isset($item['unitRate']) && $item['unitRate'] !== '' ? (float)$item['unitRate'] : 0;
             $stmt = $conn->prepare("INSERT INTO quotationItems (qutId, itemDetails, sacCode, uom, qty, unitRate) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$qutId, $item['itemDetails'], $item['sacCode'], $item['uom'], $item['qty'], $item['unitRate']]);
+            $stmt->execute([$qutId, $item['itemDetails'], $item['sacCode'], $item['uom'], $item['qty'], $unitRate]);
         }
 
         return true; // Return true on successful update
@@ -82,8 +84,9 @@ function insertQuotation($quotationData) {
         $cdateTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
         $currentDate = $cdateTime->format('Y-m-d H:i:s');
         // Prepare and execute the SQL query to insert quotation data
-        $stmt = $conn->prepare("INSERT INTO quotation (qutReference, date, subject, status, clientId, contactName, scopeOfWork, termAndCondition, version, created_at, last_modified, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$quotationData['qutReference'], $quotationDate, $quotationData['subject'], $quotationData['status'], $quotationData['clientId'], $quotationData['contactName'], $quotationData['scopeOfWork'], $quotationData['termAndCondition'], $quotationData['version'], $currentDate, $currentDate, $quotationData['createdBy']]);
+        // $stmt = $conn->prepare("INSERT INTO quotation (qutReference, date, subject, status, clientId, contactName, scopeOfWork,client_scope_of_work, termAndCondition, version, created_at, last_modified, created_by,proposed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)");
+        $stmt = $conn->prepare("INSERT INTO quotation (qutReference, date, subject, status, clientId, contactName, scopeOfWork,client_scope_of_work, termAndCondition, version, created_at, last_modified, created_by,proposed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?)");
+        $stmt->execute([$quotationData['qutReference'], $quotationDate, $quotationData['subject'], $quotationData['status'], $quotationData['clientId'], $quotationData['contactName'], $quotationData['scopeOfWork'],$quotationData['client_scope_of_work'], $quotationData['termAndCondition'], $quotationData['version'], $currentDate, $currentDate, $quotationData['createdBy'],$quotationData['proposed_by']]);
         // Return the ID of the inserted quotation
         return $conn->lastInsertId();
     } catch (PDOException $e) {
@@ -292,6 +295,7 @@ function fetchAllQuotationslist() {
                                 OR q.created_by LIKE :searchTerm 
                                 OR q.created_at LIKE :searchTerm 
                                 OR q.status LIKE :searchTerm 
+                                OR q.proposed_by LIKE :searchTerm
                                 OR c.clientName LIKE :searchTerm)";
             $query .= $searchCondition;
             $countQuery .= $searchCondition;

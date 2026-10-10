@@ -39,8 +39,10 @@ if ($endpoint === 'insertQuotation') {
             'contactName' => $data['contactName'] ?? '',
             'termAndCondition' => $data['termAndCondition'] ?? '',
             'scopeOfWork' => $data['scopeOfWork'] ?? '',
+            'client_scope_of_work' => $data['client_scope_of_work'] ?? '',
             'version' => $data['version'] ?? '',
-            'createdBy' => $data['created_by'] ?? ''
+            'createdBy' => $data['created_by'] ?? '',
+            'proposed_by' => $data['proposed_by'] ?? ''
         );
 
         // Extract item data from the request
@@ -91,8 +93,10 @@ if ($endpoint === 'insertQuotation') {
                 'contactName' => $data['contactName'] ?? '',
                 'termAndCondition' => $data['termAndCondition'] ?? '',
                 'scopeOfWork' => $data['scopeOfWork'] ?? '',
+                'client_scope_of_work' => $data['client_scope_of_work'] ?? '',
                 'version' => $data['version'] ?? '',
-                'createdBy' => $data['created_by'] ?? ''
+                'createdBy' => $data['created_by'] ?? '',
+                'proposed_by' => $data['proposed_by'] ?? ''
             );
 
             // Extract item data from the request
@@ -139,8 +143,10 @@ if ($endpoint === 'insertQuotation') {
             'contactName' => $data['contactName'] ?? '',
             'termAndCondition' => $data['termAndCondition'] ?? '',
             'scopeOfWork' => $data['scopeOfWork'] ?? '',
+            'client_scope_of_work' => $data['client_scope_of_work'] ?? '',
             'version' => $data['version'] ?? '',
-            'createdBy' => $data['created_by'] ?? ''
+            'createdBy' => $data['created_by'] ?? '',
+            'proposed_by' => $data['proposed_by'] ?? ''
         );
 
         // Extract item data from the request
@@ -216,8 +222,10 @@ elseif ($endpoint === 'fetchDraftQuotation') {
             'clientId' => $data['clientId'] ?? '',
             'contactId' => $data['contactId'] ?? '',
             'scopeOfWork' => $data['scopeOfWork'] ?? '',
+            'client_scope_of_work' => $data['client_scope_of_work'] ?? '',
             'version' => $data['version'] ?? '',
-            'createdBy' => $data['createdBy'] ?? ''
+            'createdBy' => $data['createdBy'] ?? '',
+            'proposed_by' => $data['proposed_by'] ?? ''
         );
 
         // Extract item data from the request

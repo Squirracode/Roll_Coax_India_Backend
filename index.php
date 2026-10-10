@@ -636,9 +636,17 @@ elseif ($endpoint === 'fetchMenuRoleMap') {
                 echo json_encode(array("message" => "Failed to fetch menuRoleMap"));
             }
         }
-    
-    } else {
+    }
+elseif ($endpoint === 'getBulkReportsData') {
+    $clientIds = isset($_GET['clientIds']) ? $_GET['clientIds'] : '';
+    $data = getBulkReportsData($clientIds);
+    header('Content-Type: application/json');
+    echo json_encode($data);
+}
+else {
         http_response_code(401);
         echo json_encode(array("message" => "Unauthorized"));
     }
+    
+    
 ?>
