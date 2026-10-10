@@ -1467,51 +1467,97 @@ function deleteSignature($id) {
     }
 }
 
+// function fetchAllCalibrationsNew() {
+//     global $host, $dbName, $dbUname, $dbPass;
+
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+//         $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
+//         $search = isset($_GET['search']) ? $_GET['search'] : '';
+//         $offset = ($page - 1) * $pageSize;
+
+//         $query = "SELECT * FROM gauge_calibration WHERE 1=1";
+//         if (!empty($search)) {
+//             $query .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
+//         }
+//         $query .= " ORDER BY srNo DESC LIMIT :offset, :pageSize";
+
+//         $stmt = $conn->prepare($query);
+//         if (!empty($search)) {
+//             $searchTerm = "%$search%";
+//             $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+//         $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
+//         $stmt->execute();
+//         $calibrations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+//         $countQuery = "SELECT COUNT(*) AS total FROM gauge_calibration WHERE 1=1";
+//         if (!empty($search)) {
+//             $countQuery .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
+//         }
+
+//         $countStmt = $conn->prepare($countQuery);
+//         if (!empty($search)) {
+//             $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
+//         }
+//         $countStmt->execute();
+//         $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+//         return [
+//             'data' => $calibrations,
+//             'total' => $totalCount,
+//             'page' => $page,
+//             'pageSize' => $pageSize
+//         ];
+//     } catch (PDOException $e) {
+//         return ['error' => $e->getMessage()];
+//     }
+// }
 function fetchAllCalibrationsNew() {
     global $host, $dbName, $dbUname, $dbPass;
 
     try {
-        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn = new PDO(
+            "mysql:host=$host;dbname=$dbName;charset=utf8mb4",
+            $dbUname,
+            $dbPass
+        );
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-        $pageSize = isset($_GET['pageSize']) ? (int)$_GET['pageSize'] : 10;
-        $search = isset($_GET['search']) ? $_GET['search'] : '';
-        $offset = ($page - 1) * $pageSize;
+        $search = trim($_GET['search'] ?? '');
 
-        $query = "SELECT * FROM gauge_calibration WHERE 1=1";
-        if (!empty($search)) {
-            $query .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
+        $query = "SELECT * FROM gauge_calibration";
+        $params = [];
+
+        if ($search !== '') {
+            $query .= " WHERE (
+                make LIKE :makeSearch
+                OR rangeValue LIKE :rangeSearch
+                OR calibrationDoneBy LIKE :calibrationSearch
+            )";
+
+            $searchTerm = "%{$search}%";
+            $params = [
+                ':makeSearch' => $searchTerm,
+                ':rangeSearch' => $searchTerm,
+                ':calibrationSearch' => $searchTerm
+            ];
         }
-        $query .= " ORDER BY srNo DESC LIMIT :offset, :pageSize";
+
+        $query .= " ORDER BY srNo DESC";
 
         $stmt = $conn->prepare($query);
-        if (!empty($search)) {
-            $searchTerm = "%$search%";
-            $stmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
-        }
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
-        $stmt->bindParam(':pageSize', $pageSize, PDO::PARAM_INT);
-        $stmt->execute();
+        $stmt->execute($params);
+
         $calibrations = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $countQuery = "SELECT COUNT(*) AS total FROM gauge_calibration WHERE 1=1";
-        if (!empty($search)) {
-            $countQuery .= " AND (make LIKE :search OR rangeValue LIKE :search OR calibrationDoneBy LIKE :search)";
-        }
-
-        $countStmt = $conn->prepare($countQuery);
-        if (!empty($search)) {
-            $countStmt->bindParam(':search', $searchTerm, PDO::PARAM_STR);
-        }
-        $countStmt->execute();
-        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
 
         return [
             'data' => $calibrations,
-            'total' => $totalCount,
-            'page' => $page,
-            'pageSize' => $pageSize
+            'total' => count($calibrations)
         ];
     } catch (PDOException $e) {
         return ['error' => $e->getMessage()];
