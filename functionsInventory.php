@@ -50,11 +50,17 @@ function getAllInventory() {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+        // Ensure columns exist on requests table
+        try { $conn->exec("ALTER TABLE inventory_requests ADD COLUMN sr_no VARCHAR(100) DEFAULT NULL"); } catch(Exception $e){}
+
         $stmt = $conn->query("
             SELECT i.*,
-              COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = i.name LIMIT 1)) AS item_image_fallback,
+              COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = i.name ORDER BY it.id DESC LIMIT 1)) AS item_image_fallback,
+              (SELECT it.assign_operators FROM inventory_items it WHERE it.item_name = i.name ORDER BY (CASE WHEN it.assign_operators = 'Yes' THEN 1 ELSE 2 END), it.id DESC LIMIT 1) AS assign_operators,
+              (SELECT it.operators FROM inventory_items it WHERE it.item_name = i.name ORDER BY (CASE WHEN it.assign_operators = 'Yes' THEN 1 ELSE 2 END), it.id DESC LIMIT 1) AS operators,
               (SELECT SUM(IFNULL(r.quantity_requested, 1)) FROM inventory_requests r WHERE r.inventory_id = i.id AND r.status = 'Reserved') AS reserved,
-              (SELECT SUM(IFNULL(r.quantity_requested, 1)) FROM inventory_requests r WHERE r.inventory_id = i.id AND r.status = 'Issued') AS issued
+              (SELECT SUM(IFNULL(r.quantity_requested, 1)) FROM inventory_requests r WHERE r.inventory_id = i.id AND r.status = 'Issued') AS issued,
+              (SELECT COUNT(*) FROM inventory_requests r WHERE r.inventory_id = i.id AND r.status = 'Issued' AND r.required_until = '2099-12-31') AS is_permanently_issued
             FROM inventory i
             ORDER BY i.id DESC
         ");
@@ -239,20 +245,26 @@ function deleteInventoryItem($id) {
 
 // ─── INVENTORY ITEMS (New Item Flow) ───────────────────────────────────────────
 
-function addInventoryItem($type, $item_name, $item_make, $image_link) {
+function addInventoryItem($type, $item_name, $item_make, $image_link, $assign_operators = 'No', $operators = '') {
     global $host, $dbName, $dbUname, $dbPass;
     try {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+        if (is_array($operators)) {
+            $operators = json_encode($operators);
+        }
+
         $stmt = $conn->prepare("
-            INSERT INTO inventory_items (type, item_name, item_make, image_link)
-            VALUES (:type, :item_name, :item_make, :image_link)
+            INSERT INTO inventory_items (type, item_name, item_make, image_link, assign_operators, operators)
+            VALUES (:type, :item_name, :item_make, :image_link, :assign_operators, :operators)
         ");
-        $stmt->bindParam(':type',       $type);
-        $stmt->bindParam(':item_name',  $item_name);
-        $stmt->bindParam(':item_make',  $item_make);
-        $stmt->bindParam(':image_link', $image_link);
+        $stmt->bindParam(':type',             $type);
+        $stmt->bindParam(':item_name',        $item_name);
+        $stmt->bindParam(':item_make',        $item_make);
+        $stmt->bindParam(':image_link',       $image_link);
+        $stmt->bindParam(':assign_operators', $assign_operators);
+        $stmt->bindParam(':operators',        $operators);
         
         $stmt->execute();
         return true;
@@ -274,11 +286,15 @@ function fetchInventoryItems() {
     }
 }
 
-function updateMasterCatalogItem($id, $type, $item_name, $item_make, $image_link) {
+function updateMasterCatalogItem($id, $type, $item_name, $item_make, $image_link, $assign_operators = 'No', $operators = '') {
     global $host, $dbName, $dbUname, $dbPass;
     try {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        if (is_array($operators)) {
+            $operators = json_encode($operators);
+        }
 
         // 1. Fetch old item details
         $stmt_old = $conn->prepare("SELECT item_name FROM inventory_items WHERE id = :id LIMIT 1");
@@ -290,14 +306,16 @@ function updateMasterCatalogItem($id, $type, $item_name, $item_make, $image_link
         // 2. Update item in master catalog
         $stmt = $conn->prepare("
             UPDATE inventory_items 
-            SET type = :type, item_name = :item_name, item_make = :item_make, image_link = :image_link
+            SET type = :type, item_name = :item_name, item_make = :item_make, image_link = :image_link, assign_operators = :assign_operators, operators = :operators
             WHERE id = :id
         ");
-        $stmt->bindParam(':type',       $type);
-        $stmt->bindParam(':item_name',  $item_name);
-        $stmt->bindParam(':item_make',  $item_make);
-        $stmt->bindParam(':image_link', $image_link);
-        $stmt->bindParam(':id',         $id, PDO::PARAM_INT);
+        $stmt->bindParam(':type',             $type);
+        $stmt->bindParam(':item_name',        $item_name);
+        $stmt->bindParam(':item_make',        $item_make);
+        $stmt->bindParam(':image_link',       $image_link);
+        $stmt->bindParam(':assign_operators', $assign_operators);
+        $stmt->bindParam(':operators',        $operators);
+        $stmt->bindParam(':id',               $id, PDO::PARAM_INT);
         $stmt->execute();
 
         // 3. Update matching records in inventory table (name, make, image)
@@ -459,10 +477,14 @@ function submitInventoryRequest($inventory_id, $item_name, $item_category, $oper
         try { $conn->exec("ALTER TABLE inventory_requests ADD COLUMN quantity_requested DECIMAL(10,2) DEFAULT 1.00"); } catch(Exception $e){}
         try { $conn->exec("ALTER TABLE inventory_requests ADD COLUMN uom VARCHAR(50) DEFAULT 'Pcs'"); } catch(Exception $e){}
         try { $conn->exec("ALTER TABLE inventory_requests ADD COLUMN ticket_no VARCHAR(50) DEFAULT NULL"); } catch(Exception $e){}
+        try { $conn->exec("ALTER TABLE inventory_requests ADD COLUMN sr_no VARCHAR(100) DEFAULT NULL"); } catch(Exception $e){}
 
-        // Backfill ticket_no for any past requests missing one
+        // Backfill ticket_no and sr_no for any past requests
         try {
             $conn->exec("UPDATE inventory_requests SET ticket_no = CONCAT('REQ-', YEAR(COALESCE(created_at, NOW())), '-', (1000 + id)) WHERE ticket_no IS NULL OR ticket_no = ''");
+        } catch(Exception $e){}
+        try {
+            $conn->exec("UPDATE inventory_requests r JOIN inventory i ON r.inventory_id = i.id SET r.sr_no = i.sr_no WHERE (r.sr_no IS NULL OR r.sr_no = '') AND i.sr_no IS NOT NULL AND i.sr_no != ''");
         } catch(Exception $e){}
 
         // Auto-generate unified ticket number: REQ-{YEAR}-{1001, 1002...} across ALL items (Reusable & Consumable)
@@ -484,13 +506,14 @@ function submitInventoryRequest($inventory_id, $item_name, $item_category, $oper
         $nextSeq = ($maxNum >= 1001) ? ($maxNum + 1) : 1001;
         $ticketNo = $prefix . $nextSeq;
 
-        // Check if item is consumable
-        $invStmt = $conn->prepare("SELECT isConsumable, available, unit_of_measure FROM inventory WHERE id = ?");
+        // Check if item is consumable & get its actual sr_no snapshot
+        $invStmt = $conn->prepare("SELECT isConsumable, available, unit_of_measure, sr_no FROM inventory WHERE id = ?");
         $invStmt->execute([(int)$inventory_id]);
         $inv = $invStmt->fetch(PDO::FETCH_ASSOC);
 
         $isConsumable = $inv ? (int)$inv['isConsumable'] : 0;
         $qtyReq = (float)($quantity_requested > 0 ? $quantity_requested : 1);
+        $itemSrNo = $inv['sr_no'] ?? null;
 
         if ($isConsumable === 1) {
             $currentAvail = (float)($inv['available'] ?? 0);
@@ -531,13 +554,14 @@ function submitInventoryRequest($inventory_id, $item_name, $item_category, $oper
         }
 
         $stmt = $conn->prepare("
-            INSERT INTO inventory_requests (ticket_no, inventory_id, item_name, item_category, operator_name, requester_name, requested_by, required_from, required_from_time, required_until, required_until_time, purpose, status, quantity_requested, uom)
-            VALUES (:ticket_no, :inventory_id, :item_name, :item_category, :operator_name, :requester_name, :requested_by, :required_from, :required_from_time, :required_until, :required_until_time, :purpose, 'Pending', :quantity_requested, :uom)
+            INSERT INTO inventory_requests (ticket_no, inventory_id, item_name, item_category, sr_no, operator_name, requester_name, requested_by, required_from, required_from_time, required_until, required_until_time, purpose, status, quantity_requested, uom)
+            VALUES (:ticket_no, :inventory_id, :item_name, :item_category, :sr_no, :operator_name, :requester_name, :requested_by, :required_from, :required_from_time, :required_until, :required_until_time, :purpose, 'Pending', :quantity_requested, :uom)
         ");
         $stmt->bindParam(':ticket_no',           $ticketNo);
         $stmt->bindParam(':inventory_id',        $inventory_id, PDO::PARAM_INT);
         $stmt->bindParam(':item_name',           $item_name);
         $stmt->bindParam(':item_category',       $item_category);
+        $stmt->bindParam(':sr_no',               $itemSrNo);
         $stmt->bindParam(':operator_name',       $operator_name);
         $stmt->bindParam(':requester_name',      $requester_name);
         $stmt->bindParam(':requested_by',        $requested_by);
@@ -561,23 +585,13 @@ function getInventoryRequestsByUser($requested_by) {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // $stmt = $conn->prepare("
-        //     SELECT r.*,
-        //       COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
-        //       COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
-        //       COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-        //       i.available, i.isStoreAsset, i.unit_of_measure
-        //     FROM inventory_requests r
-        //     LEFT JOIN inventory i ON r.inventory_id = i.id
-        //     WHERE r.requested_by = :requested_by
-        //     ORDER BY r.created_at DESC
-        // ");
         $stmt = $conn->prepare("
             SELECT r.*,
               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-              i.sr_no, i.make, i.model, i.available, i.isStoreAsset, i.unit_of_measure
+              COALESCE(r.sr_no, i.sr_no) AS sr_no,
+              i.make, i.model, i.available, i.isStoreAsset, i.unit_of_measure
             FROM inventory_requests r
             LEFT JOIN inventory i ON r.inventory_id = i.id
             WHERE r.requested_by = :requested_by
@@ -658,30 +672,6 @@ function updateUserPendingRequest($id, $requested_by, $requester_name, $operator
 
 // ─── INVENTORY REQUEST FUNCTIONS (Admin Role) ──────────────────────────────
 
-// function getAllInventoryRequests() {
-//     global $host, $dbName, $dbUname, $dbPass;
-//     try {
-//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
-//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-//         $stmt = $conn->prepare("
-//             SELECT r.*,
-//               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
-//               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
-//               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-//               i.available, i.isStoreAsset, i.unit_of_measure
-//             FROM inventory_requests r
-//             LEFT JOIN inventory i ON r.inventory_id = i.id
-//             ORDER BY r.created_at DESC
-//         ");
-//         $stmt->execute();
-//         return $stmt->fetchAll(PDO::FETCH_ASSOC);
-//     } catch (PDOException $e) {
-//         error_log('getAllInventoryRequests error: ' . $e->getMessage());
-//         return false;
-//     }
-// }
-
 function getAllInventoryRequests() {
     global $host, $dbName, $dbUname, $dbPass;
     try {
@@ -693,7 +683,7 @@ function getAllInventoryRequests() {
               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-              COALESCE(i.sr_no, (SELECT it.sr_no FROM inventory it WHERE it.name = r.item_name AND it.sr_no IS NOT NULL AND it.sr_no != '' LIMIT 1)) AS sr_no,
+              COALESCE(r.sr_no, i.sr_no) AS sr_no,
               i.make, i.model, i.available, i.isStoreAsset, i.unit_of_measure
             FROM inventory_requests r
             LEFT JOIN inventory i ON r.inventory_id = i.id
@@ -941,7 +931,7 @@ function getDamagedItems() {
                    COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = d.item_name OR it.item_name = i.name LIMIT 1)) AS image_path,
                    i.make, 
                    i.model, 
-                   i.sr_no, 
+                   COALESCE(r.sr_no, i.sr_no) AS sr_no, 
                    i.serialNumber, 
                    i.category, 
                    i.type, 
@@ -1088,23 +1078,31 @@ function getInventoryHistory($inventory_id) {
         $itemName = $item['name'] ?? '';
         $actualInvId = $item['id'] ?? $inventory_id;
 
-        // Fetch requests by inventory_id OR item_name
-        $stmt = $conn->prepare("
-            SELECT * FROM inventory_requests 
-            WHERE inventory_id = ? OR (item_name = ? AND item_name != '')
-            ORDER BY id DESC
-        ");
-        $stmt->execute([(int)$actualInvId, $itemName]);
-        $requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Fetch requests strictly by inventory_id (do NOT cross-match by item_name as different assets share identical item names)
+        if (!empty($actualInvId)) {
+            $stmt = $conn->prepare("
+                SELECT * FROM inventory_requests 
+                WHERE inventory_id = ?
+                ORDER BY id DESC
+            ");
+            $stmt->execute([(int)$actualInvId]);
+            $requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            $requests = [];
+        }
 
-        // Fetch damage logs by inventory_id OR item_name
-        $stmt2 = $conn->prepare("
-            SELECT * FROM damage_log 
-            WHERE inventory_id = ? OR (item_name = ? AND item_name != '')
-            ORDER BY id DESC
-        ");
-        $stmt2->execute([(int)$actualInvId, $itemName]);
-        $damage_logs = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        // Fetch damage logs strictly by inventory_id
+        if (!empty($actualInvId)) {
+            $stmt2 = $conn->prepare("
+                SELECT * FROM damage_log 
+                WHERE inventory_id = ?
+                ORDER BY id DESC
+            ");
+            $stmt2->execute([(int)$actualInvId]);
+            $damage_logs = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            $damage_logs = [];
+        }
 
         return [
             'item' => $item ?: null,
