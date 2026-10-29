@@ -133,8 +133,10 @@ function fetchAssignableDetails($assignableId) {
         
         $itemWiseTotals = [];    
 
-        foreach ($claims as $claim) {
-    $itemId = $claim['itemId'];
+    foreach ($claims as $claim) {
+    // $itemId = $claim['itemId'];
+    $itemId = $claim['itemId'] ?? ($claim['id'] ?? null);
+    if (!$itemId) continue;
     $qty = (float)$claim['qty'];
 
     if (!isset($itemWiseTotals[$itemId])) {
@@ -149,10 +151,20 @@ function fetchAssignableDetails($assignableId) {
 }
 
         // Attach to each claim
+        // foreach ($claims as &$claim) {
+        //     $itemId = $claim['itemId'];
+        //     $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
+        //     $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+        //     $claim['totalQty'] = $total;
+        //     $claim['totalClaimedQty'] = $claimed;
+        //     // $claim['availableQty'] = $total - $claimed;
+        //     $claim['availableQty'] = round($total - $claimed, 2);
+        // }
         foreach ($claims as &$claim) {
-            $itemId = $claim['itemId'];
-            $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
-            $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+            $itemId = $claim['itemId'] ?? ($claim['id'] ?? null);
+            if (!$itemId) continue;
+            $total = ($itemId && isset($itemWiseTotals[$itemId])) ? $itemWiseTotals[$itemId]['totalQty'] : (float)($item['qty'] ?? 0);
+            $claimed = ($itemId && isset($itemWiseTotals[$itemId])) ? $itemWiseTotals[$itemId]['totalClaimedQty'] : 0;
             $claim['totalQty'] = $total;
             $claim['totalClaimedQty'] = $claimed;
             // $claim['availableQty'] = $total - $claimed;
@@ -160,10 +172,19 @@ function fetchAssignableDetails($assignableId) {
         }
         
         // Attach to each item
+        // foreach ($items as &$item) {
+        //     $itemId = $item['itemId'];
+        //     $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
+        //     $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+        //     $item['totalQty'] = $total;
+        //     $item['totalClaimedQty'] = $claimed;
+        //     // $item['availableQty'] = $total - $claimed;
+        //     $item['availableQty'] = round($total - $claimed, 2);
+        // }
         foreach ($items as &$item) {
-            $itemId = $item['itemId'];
-            $total = $itemWiseTotals[$itemId]['totalQty'] ?? 0;
-            $claimed = $itemWiseTotals[$itemId]['totalClaimedQty'] ?? 0;
+            $itemId = $item['itemId'] ?? ($item['id'] ?? null);
+            $total = ($itemId && isset($itemWiseTotals[$itemId])) ? $itemWiseTotals[$itemId]['totalQty'] : (float)($item['qty'] ?? 0);
+            $claimed = ($itemId && isset($itemWiseTotals[$itemId])) ? $itemWiseTotals[$itemId]['totalClaimedQty'] : 0;
             $item['totalQty'] = $total;
             $item['totalClaimedQty'] = $claimed;
             // $item['availableQty'] = $total - $claimed;
@@ -2086,6 +2107,21 @@ function markInvoiceCompleted() {
     } catch (PDOException $e) {
         http_response_code(500);
         return ['error' => 'Database error: ' . $e->getMessage()];
+    }
+}
+
+function fetchExecutionAndAccountUsers() {
+    global $host, $dbName, $dbUname, $dbPass;
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $conn->prepare("SELECT id, name, role FROM users WHERE role IN ('Execution', 'Account') ORDER BY name ASC");
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        return null;
     }
 }
 ?>

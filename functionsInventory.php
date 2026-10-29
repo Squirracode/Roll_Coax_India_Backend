@@ -561,12 +561,23 @@ function getInventoryRequestsByUser($requested_by) {
         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+        // $stmt = $conn->prepare("
+        //     SELECT r.*,
+        //       COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
+        //       COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
+        //       COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
+        //       i.available, i.isStoreAsset, i.unit_of_measure
+        //     FROM inventory_requests r
+        //     LEFT JOIN inventory i ON r.inventory_id = i.id
+        //     WHERE r.requested_by = :requested_by
+        //     ORDER BY r.created_at DESC
+        // ");
         $stmt = $conn->prepare("
             SELECT r.*,
               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-              i.available, i.isStoreAsset, i.unit_of_measure
+              i.sr_no, i.make, i.model, i.available, i.isStoreAsset, i.unit_of_measure
             FROM inventory_requests r
             LEFT JOIN inventory i ON r.inventory_id = i.id
             WHERE r.requested_by = :requested_by

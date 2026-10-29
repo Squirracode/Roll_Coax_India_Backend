@@ -127,7 +127,21 @@ function updateUser($Id, $username, $password, $email, $role, $name) {
     }
 }
 
+function getRolesFromMenuRoleMap() {
+    global $host, $dbName, $dbUname, $dbPass;
 
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $pdo->prepare("SELECT DISTINCT role FROM menuRoleMap ORDER BY role ASC");
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        return null;
+    }
+}
 
 
 // Add client and contacts
@@ -1563,7 +1577,6 @@ function fetchAllCalibrationsNew() {
         return ['error' => $e->getMessage()];
     }
 }
-
 function fetchAllCalibrations() {
     global $host, $dbName, $dbUname, $dbPass;
 

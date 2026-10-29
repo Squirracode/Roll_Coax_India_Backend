@@ -1,5 +1,8 @@
 <?php
 require_once 'functionsAssignable.php';
+error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED);
+ini_set('display_errors', '0');
+
 // Allow from any origin
 if (isset($_SERVER['HTTP_ORIGIN'])) {
     // Decide if the origin in $_SERVER['HTTP_ORIGIN'] is one
@@ -852,7 +855,18 @@ elseif ($endpoint === 'markInvoiceCompleted') {
         echo json_encode(['message' => 'Unauthorized']);
     }
 }
-  
+elseif ($endpoint === 'fetchExecutionAndAccountUsers') {
+    $authenticated = authenticateUser();
+    if ($authenticated) {
+        $users = fetchExecutionAndAccountUsers();
+        header('Content-Type: application/json');
+        echo json_encode($users !== null ? $users : []);
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
+    }
+}
+
 else {
     http_response_code(404);
     echo json_encode(array("message" => "Endpoint not found"));

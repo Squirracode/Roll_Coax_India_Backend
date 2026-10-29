@@ -637,6 +637,20 @@ elseif ($endpoint === 'fetchMenuRoleMap') {
             }
         }
     }
+
+elseif ($endpoint === 'getRolesFromMenuRoleMap') {
+    $authenticated = authenticateUser();
+
+    if ($authenticated) {
+        $roles = getRolesFromMenuRoleMap();
+        header('Content-Type: application/json');
+        echo json_encode($roles !== null ? $roles : []);
+    } else {
+        http_response_code(401);
+        echo json_encode(array("message" => "Unauthorized"));
+    }
+}
+
 elseif ($endpoint === 'getBulkReportsData') {
     $clientIds = isset($_GET['clientIds']) ? $_GET['clientIds'] : '';
     $data = getBulkReportsData($clientIds);
