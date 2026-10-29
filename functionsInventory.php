@@ -658,6 +658,30 @@ function updateUserPendingRequest($id, $requested_by, $requester_name, $operator
 
 // ─── INVENTORY REQUEST FUNCTIONS (Admin Role) ──────────────────────────────
 
+// function getAllInventoryRequests() {
+//     global $host, $dbName, $dbUname, $dbPass;
+//     try {
+//         $conn = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8mb4", $dbUname, $dbPass);
+//         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+//         $stmt = $conn->prepare("
+//             SELECT r.*,
+//               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
+//               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
+//               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
+//               i.available, i.isStoreAsset, i.unit_of_measure
+//             FROM inventory_requests r
+//             LEFT JOIN inventory i ON r.inventory_id = i.id
+//             ORDER BY r.created_at DESC
+//         ");
+//         $stmt->execute();
+//         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+//     } catch (PDOException $e) {
+//         error_log('getAllInventoryRequests error: ' . $e->getMessage());
+//         return false;
+//     }
+// }
+
 function getAllInventoryRequests() {
     global $host, $dbName, $dbUname, $dbPass;
     try {
@@ -669,7 +693,8 @@ function getAllInventoryRequests() {
               COALESCE(i.isConsumable, (SELECT (it.type = 'Consumable') FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 0) AS isConsumable,
               COALESCE(i.item_type, (SELECT it.type FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1), 'Reusable') AS item_type,
               COALESCE(NULLIF(i.image_path, ''), (SELECT it.image_link FROM inventory_items it WHERE it.item_name = r.item_name LIMIT 1)) AS image_path,
-              i.available, i.isStoreAsset, i.unit_of_measure
+              COALESCE(i.sr_no, (SELECT it.sr_no FROM inventory it WHERE it.name = r.item_name AND it.sr_no IS NOT NULL AND it.sr_no != '' LIMIT 1)) AS sr_no,
+              i.make, i.model, i.available, i.isStoreAsset, i.unit_of_measure
             FROM inventory_requests r
             LEFT JOIN inventory i ON r.inventory_id = i.id
             ORDER BY r.created_at DESC
